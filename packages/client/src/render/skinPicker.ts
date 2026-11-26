@@ -1,8 +1,10 @@
 /**
  * Choosing a taxi's look before it flies: shown for New Game and for each fresh taxi after
- * one is lost. Every skin, drawn large by the in-game renderer; the chosen one sits on a pad
- * with its gear down, the others hover with theirs up. ◀ ▶ for skin, ▲ ▼ (or swatches / custom
- * color picker) for paint color, ENTER (or a card click) to fly, ESC to go back.
+ * one is lost. Every skin, drawn large by the in-game renderer, on a carousel that scrolls to
+ * keep the chosen one centered; it sits on a pad with its gear down, the others hover with
+ * theirs up. ◀ ▶ (keys or the edge arrows, or clicking a side card) for skin, ▲ ▼ (or swatches
+ * / custom color picker) for paint color, ENTER (or clicking the centered card) to fly, ESC to
+ * go back.
  */
 import { Container, Graphics, type Text } from 'pixi.js';
 import { DEFAULT_CONFIG, TAXI, type Taxi } from '@hey-taxi/sim';
@@ -17,6 +19,10 @@ const CARD_W = 270;
 const CARD_H = 240;
 const GAP = 24;
 const GEAR_SPEED = 1 / DEFAULT_CONFIG.gearTime;
+/** Carousel easing rate (per second): how quickly the strip slides to the chosen card. */
+const SCROLL_RATE = 12;
+/** Opacity of a card one slot off center; farther cards fade further. */
+const SIDE_ALPHA = 0.5;
 
 interface PaintSwatch {
   name: string;
@@ -40,6 +46,7 @@ const SWATCHES: PaintSwatch[] = [
 
 interface Card {
   id: SkinId;
+  root: Container;
   frame: Graphics;
   name: Text;
   view: TaxiView;
@@ -49,6 +56,8 @@ interface Card {
 
 export class SkinPicker {
   readonly root = new Container();
+  /** The row of cards; slides horizontally to center the chosen one. */
+  private strip = new Container();
   private cards: Card[];
   private index: number;
   private color: number | undefined;
@@ -74,12 +83,12 @@ export class SkinPicker {
     sub.position.set(VIEW_W / 2, 140);
     this.root.addChild(title, sub);
 
-    const total = SKINS.length * CARD_W + (SKINS.length - 1) * GAP;
     const top = 176;
+    this.strip.y = top;
+    this.root.addChild(this.strip);
     this.cards = SKINS.map((skin, i) => {
-      const x = VIEW_W / 2 - total / 2 + i * (CARD_W + GAP);
       const card = new Container();
-      card.position.set(x, top);
+      card.position.set(i * (CARD_W + GAP), 0);
       const frame = new Graphics();
       const art = new Container();
       art.scale.set(ART_SCALE);
@@ -98,14 +107,30 @@ export class SkinPicker {
       card.addChild(frame, pad, art, name);
       card.eventMode = 'static';
       card.cursor = 'pointer';
-      card.on('pointerover', () => this.select(i));
+      // No hover-select: the strip slides under the pointer, so hovering would chase it.
       card.on('pointertap', () => {
-        this.select(i);
-        this.confirm();
+        if (i === this.index) this.confirm();
+        else this.select(i);
       });
-      this.root.addChild(card);
-      return { id: skin.id, frame, name, view, art, gear: 0 };
+      this.strip.addChild(card);
+      return { id: skin.id, root: card, frame, name, view, art, gear: 0 };
     });
+
+    // Edge arrows: step through the carousel.
+    for (const step of [-1, 1]) {
+      const arrow = new Container();
+      arrow.position.set(step < 0 ? 40 : VIEW_W - 40, top + CARD_H / 2);
+      const glyph = makeText(step < 0 ? '◀' : '▶', { fontSize: 22, fill: 0xffc83d });
+      glyph.anchor.set(0.5);
+      arrow.addChild(
+        new Graphics().circle(0, 0, 24).fill({ color: 0x05070f, alpha: 0.85 }).stroke({ width: 1.5, color: 0x3b4980 }),
+        glyph,
+      );
+      arrow.eventMode = 'static';
+      arrow.cursor = 'pointer';
+      arrow.on('pointertap', () => this.move(step));
+      this.root.addChild(arrow);
+    }
 
     // Paint color row below the cards.
     const rowY = top + CARD_H + 54;
@@ -160,7 +185,24 @@ export class SkinPicker {
     this.index = Math.max(0, this.cards.findIndex((c) => c.id === o.selected));
     this.cards[this.index]!.gear = 1;
     this.select(this.index);
+    this.strip.x = this.stripTarget();
+    this.fadeCards();
     this.refreshSwatches();
+  }
+
+  /** Strip x that puts the chosen card at the center of the view. */
+  private stripTarget(): number {
+    return VIEW_W / 2 - CARD_W / 2 - this.index * (CARD_W + GAP);
+  }
+
+  /** Fade cards by their distance from the center slot. */
+  private fadeCards(): void {
+    const slot = CARD_W + GAP;
+    for (const c of this.cards) {
+      const center = this.strip.x + c.root.x + CARD_W / 2;
+      const off = Math.abs(center - VIEW_W / 2) / slot;
+      c.root.alpha = Math.max(0.15, 1 - (1 - SIDE_ALPHA) * Math.min(off, 1) - 0.25 * Math.max(0, off - 1));
+    }
   }
 
   get isOpen(): boolean {
@@ -204,6 +246,8 @@ export class SkinPicker {
   /** Animate: the chosen taxi lowers its gear onto the pad; the others raise theirs and hover. */
   update(time: number, dt: number): void {
     if (this.done) return;
+    this.strip.x += (this.stripTarget() - this.strip.x) * (1 - Math.exp(-SCROLL_RATE * dt));
+    this.fadeCards();
     this.cards.forEach((c, i) => {
       const chosen = i === this.index;
       c.gear = Math.max(0, Math.min(1, c.gear + (chosen ? 1 : -1) * GEAR_SPEED * dt));
