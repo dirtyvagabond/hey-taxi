@@ -251,9 +251,10 @@ function moodFor(category: CommentCategory): MoodMod {
       return { pitchMul: 1.06, speedMul: 1.04, exprMul: 1.30, dampDelta: 0.02 };
     case 'annoyed':
     case 'rough':
+    case 'thanksButBumpy':
     case 'hit':
       return { pitchMul: 1.10, speedMul: 1.09, exprMul: 1.20, dampDelta: -0.08 };
-    case 'thanksMeh':
+    case 'thanksButLate':
     case 'late':
       return { pitchMul: 0.95, speedMul: 0.91, exprMul: 0.42, dampDelta: 0.05 };
     default:

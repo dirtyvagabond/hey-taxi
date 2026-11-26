@@ -138,6 +138,8 @@ function loseTip(
   ev: SimEvent[],
 ): void {
   ensureRideFields(s, p);
+  // Remember the bump even when there's no tip left to cut: it still sours the passenger's mood.
+  p.jostled = true;
   const lost = Math.min(p.tipPercent, points);
   if (lost <= 0) return;
   p.tipCuts += lost;
@@ -242,6 +244,7 @@ function board(s: SimState, p: Passenger, taxi: Taxi, ev: SimEvent[]): void {
   p.tipCuts = Math.min(c.tipPercent, p.annoyance * c.tipCutAnnoyed);
   p.rideTicks = 0;
   p.dueTicks = dueTicksFor(s, from, to);
+  p.jostled = false;
   updateTip(s, p);
   taxi.passengerId = p.id;
   ev.push({ type: 'passengerBoarded', passengerId: p.id, taxiId: taxi.id, destPadIndex: p.destPadIndex });
@@ -278,6 +281,8 @@ function deliver(s: SimState, p: Passenger, taxi: Taxi, ev: SimEvent[]): void {
     tip: p.tip,
     tipPercent: round2(percent),
     earlyBonus: round2(earlyBonus),
+    smooth: !p.jostled,
+    late: p.rideTicks > p.dueTicks,
   });
   post(s, taxi, 'fare', fareCents, `passenger:${p.id}`, ev);
   if (tipCents > 0) post(s, taxi, 'tip', tipCents, `passenger:${p.id}`, ev);

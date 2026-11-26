@@ -17,7 +17,7 @@ import {
 } from '@hey-taxi/sim';
 import type { Sound } from './audio';
 import type { Camera } from './camera';
-import { pickLine, pickUnusedLine, type CommentCategory } from './dialogue';
+import { farewellCategory, pickLine, pickUnusedLine, type CommentCategory } from './dialogue';
 import { AMMO_COLORS, HUD_COLORS, type Hud } from './render/hud';
 import { SERVICE_COLOR } from './render/service';
 import {
@@ -491,7 +491,7 @@ export class EventPresenter {
         const mine = this.isPlayer(e.taxiId);
         const at = this.ctx.drawnAt(e.taxiId);
         const tipFrac = e.tipPercent / Math.max(1, config.tipPercentMax);
-        const category = e.tipPercent >= 20 ? 'thanksBig' : e.tipPercent >= 12 ? 'thanks' : 'thanksMeh';
+        const category = farewellCategory(e);
         const line = pickLine(category);
         let spoke = false;
         if (p) {

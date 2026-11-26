@@ -358,6 +358,47 @@ describe('riding & delivery', () => {
     expect(find(landAt(smooth.s, smooth.t, 360), 'tipLost')).toBeUndefined();
   });
 
+  it('a smooth ride is reported as smooth', () => {
+    const { s, t } = setup();
+    boardOnPad1(s, t);
+    expect(find(landAt(s, t, 360), 'fareCompleted')?.smooth).toBe(true);
+  });
+
+  it('reports whether the delivery was late', () => {
+    // A second either side of the on-time limit (landing itself takes a few ticks).
+    for (const [offset, late] of [[-60, false], [60, true]] as const) {
+      const { s, t } = setup();
+      boardOnPad1(s, t);
+      const p = s.passengers[0]!;
+      p.rideTicks = p.dueTicks + offset;
+      expect(find(landAt(s, t, 360), 'fareCompleted')?.late).toBe(late);
+    }
+  });
+
+  it('any bump marks the ride not smooth, even when an early bonus tops the tip back up', () => {
+    for (const vy of [70, 110]) {
+      // ok and rough landings
+      const { s, t } = setup();
+      boardOnPad1(s, t);
+      const p = s.passengers[0]!;
+      p.rideTicks = 0;
+      p.dueTicks = 60 * 60; // a minute early: the bonus refills the tip to the maximum
+      Object.assign(t, { status: 'flying', padIndex: -1, x: 360, y: SURFACE - 2 - TAXI.halfH - TAXI.gearLength, vy });
+      const done = find(run(s, 5), 'fareCompleted')!;
+      expect(done.tipPercent).toBeGreaterThanOrEqual(DEFAULT_CONFIG.tipPercent);
+      expect(done.smooth).toBe(false);
+    }
+  });
+
+  it('a bump still counts when there is no tip left to cut', () => {
+    const { s, t } = setup();
+    boardOnPad1(s, t);
+    const p = s.passengers[0]!;
+    p.tipCuts = DEFAULT_CONFIG.tipPercent; // tip already gone
+    Object.assign(t, { status: 'flying', padIndex: -1, x: 360, y: SURFACE - 2 - TAXI.halfH - TAXI.gearLength, vy: 110 });
+    expect(find(run(s, 5), 'fareCompleted')?.smooth).toBe(false);
+  });
+
   it('a hard landing (hull damage) at the destination is one bigger cut, not two', () => {
     const { s, t } = setup();
     boardOnPad1(s, t);

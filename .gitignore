@@ -4,3 +4,5 @@ release/
 saves/
 *.tsbuildinfo
 .DS_Store
+.plan/
+AGENTS.md

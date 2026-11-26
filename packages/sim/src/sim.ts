@@ -146,6 +146,8 @@ export interface Passenger {
   tipCuts: number;
   /** True once the taxi landed anywhere other than the destination: tip is permanently 0. */
   tipForfeited?: boolean;
+  /** True once this ride had any bump: a less-than-smooth landing, a skid or taxi bump, or hull damage. */
+  jostled?: boolean;
   /** Ticks riding so far, and the ride's on-time limit (ticks), set at boarding. */
   rideTicks: number;
   dueTicks: number;
@@ -218,7 +220,7 @@ export type SimEvent =
   /** The ride just ran past its on-time limit: from now on the tip shrinks every second. */
   | { type: 'rideLate'; passengerId: number; taxiId: string }
   /** Paid: `tipPercent` is the final percentage, including `earlyBonus` points for arriving early. */
-  | { type: 'fareCompleted'; passengerId: number; taxiId: string; padIndex: number; fare: number; tip: number; tipPercent: number; earlyBonus: number }
+  | { type: 'fareCompleted'; passengerId: number; taxiId: string; padIndex: number; fare: number; tip: number; tipPercent: number; earlyBonus: number; /** No bumps at all this ride (see Passenger.jostled). */ smooth: boolean; /** Delivered after the on-time limit. */ late: boolean }
   /** Passenger was aboard when the taxi crashed. */
   | { type: 'passengerLost'; passengerId: number; taxiId: string }
   | { type: 'passengerHit'; passengerId: number; taxiId: string; x: number; y: number; penalty: number }
