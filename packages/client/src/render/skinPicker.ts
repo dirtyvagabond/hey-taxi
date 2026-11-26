@@ -13,9 +13,9 @@ import { TaxiView } from './taxi';
 import { makeText } from './text';
 
 const ART_SCALE = 3.4;
-const CARD_W = 300;
+const CARD_W = 270;
 const CARD_H = 240;
-const GAP = 40;
+const GAP = 24;
 const GEAR_SPEED = 1 / DEFAULT_CONFIG.gearTime;
 
 interface PaintSwatch {

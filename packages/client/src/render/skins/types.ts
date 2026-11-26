@@ -9,7 +9,7 @@ import type { Container } from 'pixi.js';
  */
 export type HullStage = 0 | 1 | 2 | 3 | 4;
 
-export type SkinId = 'original' | 'pixelHomage' | 'softRetro';
+export type SkinId = 'original' | 'pixelHomage' | 'softRetro' | 'ghostNeon';
 
 /**
  * One taxi's artwork in a given skin. Everything is drawn in taxi-local units around the

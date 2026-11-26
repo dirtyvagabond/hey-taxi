@@ -4,7 +4,7 @@
 
 - **Accounts & Server Browser:** On startup you sign in with a pilot account (stored in `saves/<env>/accounts.sqlite`) and create or join a persistent world ("server"). Each server lives in its own SQLite database under `saves/<env>/servers/` along with its complete financial ledger.
 - **Continuous persistence:** The server saves checkpoints automatically every few seconds while you play, and immediately on pause, menu exit, disconnect, or shutdown.
-- **Taxi skins:** Before flying a new taxi you choose a visual skin (**CLAUDE'S BUS**, **Pixel Homage**, or **Soft Retro**). Skins are purely cosmetic — all taxis share identical physics and hitboxes. Rival taxis choose skins from the server's seeded RNG.
+- **Taxi skins:** Before flying a new taxi you choose a visual skin (**CLAUDE'S BUS**, **Pixel Homage**, **Soft Retro**, or **GHOST NEON**). Skins are purely cosmetic — all taxis share identical physics and hitboxes. Rival taxis choose skins from the server's seeded RNG.
 - **Losing your taxi:** A taxi is destroyed at zero hull points or when it crashes/strands after running dry. The world keeps running, and the lost taxi remains permanently on record with its final history and cause of destruction. Press `Enter` to launch a fresh taxi in First Shift (retaining your account balance, with a full tank, full hull, 3 missiles, and 3 flares), `V` for Game review, or `Q` for the lobby.
 - **Rivals never respawn:** Destroyed rival taxis stay permanently dead, though new named rivals may enter the world if passenger demand exceeds supply.
 
