@@ -67,20 +67,6 @@ const BLAST = [0xffffff, 0xfff1a8, 0xffd166, 0xff9f1c, 0xff4d2e, 0xffc83d];
 const rnd = (a: number, b: number) => a + Math.random() * (b - a);
 const pick = <T>(xs: T[]) => xs[Math.floor(Math.random() * xs.length)]!;
 
-export function exhaust(ps: Particles, x: number, y: number, dirX: number, dirY: number, carryVx: number, carryVy: number) {
-  const speed = rnd(140, 240);
-  ps.emit({
-    x: x + rnd(-2, 2),
-    y: y + rnd(-2, 2),
-    vx: dirX * speed + rnd(-25, 25) + carryVx * 0.4,
-    vy: dirY * speed + rnd(-25, 25) + carryVy * 0.4,
-    life: rnd(0.18, 0.4),
-    size: rnd(2, 3.5),
-    color: pick(FLAME),
-    drag: 3,
-  });
-}
-
 export function explosion(ps: Particles, x: number, y: number, vx: number, vy: number) {
   for (let i = 0; i < 90; i++) {
     const a = Math.random() * Math.PI * 2;

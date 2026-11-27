@@ -43,7 +43,7 @@ import { Connection, type ConnectionState } from './net';
 import { GUIDE_COLORS, Guides, type GuideTarget } from './render/guides';
 import { HUD_COLORS, Hud, nearestWaiting, TELEPORT_COLOR, type ShopAction } from './render/hud';
 import { lockTarget, MissileLayer } from './render/missiles';
-import { arrival, damageSmoke, exhaust, flareTrail, missileTrail, Particles } from './render/particles';
+import { arrival, damageSmoke, flareTrail, missileTrail, Particles } from './render/particles';
 import { PassengerLayer } from './render/passengers';
 import { ServiceLayer } from './render/service';
 import { skinDef, type SkinId } from './render/skins';
@@ -617,7 +617,6 @@ class Game {
       this.presenter.fuelSounds(fuelBefore, this.taxiById(this.localId)?.fuel ?? 0);
       this.presenter.checkIncomingMissiles();
       for (const taxi of this.sim.taxis) {
-        this.emitExhaust(taxi);
         if (taxi.status === 'flying' || taxi.status === 'landed') {
           damageSmoke(this.particles, taxi, hullStage(taxi.hp, this.config.taxiMaxHp));
         }
@@ -1062,18 +1061,6 @@ class Game {
       this.sound.hullWarning();
       this.hullBeepIn = 1.5;
     }
-  }
-
-  private emitExhaust(t: Taxi): void {
-    const ps = this.particles;
-    const { halfW, halfH } = TAXI;
-    if (t.thrust & Input.UP) {
-      exhaust(ps, t.x - 6, t.y + halfH + 4, 0, 1, t.vx, t.vy);
-      exhaust(ps, t.x + 6, t.y + halfH + 4, 0, 1, t.vx, t.vy);
-    }
-    if (t.thrust & Input.DOWN) exhaust(ps, t.x, t.y - halfH - 3, 0, -1, t.vx, t.vy);
-    if (t.thrust & Input.LEFT) exhaust(ps, t.x + halfW + 3, t.y, 1, 0, t.vx, t.vy);
-    if (t.thrust & Input.RIGHT) exhaust(ps, t.x - halfW - 3, t.y, -1, 0, t.vx, t.vy);
   }
 
   private drawDiagnostics(): void {
