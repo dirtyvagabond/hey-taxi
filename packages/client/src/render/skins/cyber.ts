@@ -268,7 +268,7 @@ class CyberArt implements SkinArt {
 export const CYBER_TAXI: SkinDef = {
   id: 'cyberTaxi',
   name: 'CYBER TAXI',
-  playerColor: CYBER_GOLD,
+  playerColor: 0xf0f4ff,
   thrusters: { topY: -8.6, bottomY: 9.0 },
   create: (color) => new CyberArt(color),
 };

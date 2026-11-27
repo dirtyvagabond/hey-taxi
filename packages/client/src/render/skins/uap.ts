@@ -1,10 +1,10 @@
 /**
- * "SAUCER CAB": a classic 1950s sci-fi flying saucer. Wide metallic dish with a beveled
- * equator flange, checkered rim strip, chasing rim beacon lights, a crystal-clear glass
- * bubble dome showcasing the passenger front-and-center, a glowing tractor-beam underbelly,
- * and telescoping alien tripod landing struts.
+ * "UAP": a classic 1950s sci-fi flying disc. Wide metallic dish with a beveled equator
+ * flange, checkered rim strip, chasing rim beacon lights, a crystal-clear glass bubble dome
+ * showcasing the passenger front-and-center, a glowing tractor-beam underbelly, and
+ * telescoping tripod landing struts.
  *
- * The body color tints the saucer's metallic hull and chasing rim beacons (default: atomic
+ * The body color tints the craft's metallic hull and chasing rim beacons (default: atomic
  * mint-silver).
  *
  * Taxi-local units, facing right. The body stays inside the ±24 × ±10 hitbox; extended
@@ -15,14 +15,14 @@ import { TAXI } from '@hey-taxi/sim';
 import { lookFor } from '../passengers';
 import { mix, type HullStage, type SkinArt, type SkinDef } from './types';
 
-/** Default saucer color: retro atomic mint. */
-export const SAUCER_MINT = 0x62f2c8;
+/** Default UAP color: Emerald. */
+export const UAP_MINT = 0x4ee68c;
 const DOME_GLASS = 0x162945;
 const DOME_SHINE = 0x9cd6ff;
 const RIM_DARK = 0x1a2030;
 const WARN = 0xff3b3b;
 
-/** Beacon x-positions along the saucer equator. */
+/** Beacon x-positions along the UAP equator. */
 const BEACONS = [-18, -9, 0, 9, 18] as const;
 
 const SPARKS: readonly (readonly [number, number])[] = [
@@ -67,7 +67,7 @@ function drawBody(g: Graphics, color: number): void {
     .quadraticCurveTo(8.4, -5.5, 9.5, -2.5)
     .stroke({ width: 0.75, color: 0xffffff, alpha: 0.48, cap: 'round' });
 
-  // Main upper saucer disc.
+  // Main upper disc.
   g.ellipse(0, 2.4, 24, 6.0).fill(hull);
   // Lower bevel shadow.
   g.ellipse(0, 4.4, 22.8, 3.8).fill({ color: hullShade, alpha: 0.8 });
@@ -84,7 +84,7 @@ function drawBody(g: Graphics, color: number): void {
   g.moveTo(-21, 0.4).quadraticCurveTo(0, -1.5, 21, 0.4).stroke({ width: 0.85, color: hullHi, alpha: 0.75 });
 }
 
-class SaucerArt implements SkinArt {
+class UapArt implements SkinArt {
   readonly gear = new Graphics();
   readonly body = new Container();
   private paint = new Graphics();
@@ -110,7 +110,7 @@ class SaucerArt implements SkinArt {
   }
 
   /**
-   * Telescoping alien tripod landing struts extending down and outward from under the dish,
+   * Telescoping tripod landing struts extending down and outward from under the dish,
    * with wide rounded foot pads reaching ±feetHalfW (±20) and bottom at y 24.
    */
   setGear(p: number): void {
@@ -164,7 +164,7 @@ class SaucerArt implements SkinArt {
       if (stage < 3) this.sparks.clear();
     }
 
-    // Chasing saucer rim beacons (flash red at stage 4, stutter at stage 3).
+    // Chasing rim beacons (flash red at stage 4, stutter at stage 3).
     const l = this.lights;
     l.clear();
     const activeIdx = Math.floor(time * 5.5) % BEACONS.length;
@@ -208,9 +208,9 @@ class SaucerArt implements SkinArt {
   }
 }
 
-export const SAUCER_CAB: SkinDef = {
-  id: 'saucerCab',
-  name: 'SAUCER CAB',
-  playerColor: SAUCER_MINT,
-  create: (color) => new SaucerArt(color),
+export const UAP: SkinDef = {
+  id: 'uap',
+  name: 'UAP',
+  playerColor: UAP_MINT,
+  create: (color) => new UapArt(color),
 };

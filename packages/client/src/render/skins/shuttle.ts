@@ -18,8 +18,8 @@ import { TAXI } from '@hey-taxi/sim';
 import { lookFor } from '../passengers';
 import { mix, type HullStage, type SkinArt, type SkinDef } from './types';
 
-/** Default livery color: authentic NASA Space Shuttle white. */
-export const SHUTTLE_WHITE = 0xf4f6fa;
+/** Default livery color: Pearl White (authentic NASA Space Shuttle white). */
+export const SHUTTLE_WHITE = 0xf0f4ff;
 const WHITE_SHADE = 0xd2dae8;
 const PANEL_LINE = 0xa9b4c9;
 const HEAT_SHIELD = 0x151821;

@@ -15,8 +15,8 @@ import { TAXI } from '@hey-taxi/sim';
 import { lookFor } from '../passengers';
 import { mix, type HullStage, type SkinArt, type SkinDef } from './types';
 
-/** Default vinyl body color: classic rubber-duck yellow. */
-export const BATH_CAB_YELLOW = 0xffe033;
+/** Default vinyl body color: Classic Gold. */
+export const BATH_CAB_YELLOW = 0xffc83d;
 const BILL = 0xff7b1c;
 const BILL_SHADE = 0xd65600;
 const BILL_HI = 0xffb36b;

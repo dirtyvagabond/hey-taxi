@@ -337,21 +337,21 @@ describe('taxi skins', () => {
     startedSession(seed, { skin: skin as TaxiSkin | undefined });
 
   it('the player picks the skin when joining; anything unknown defaults to original on respawn', () => {
-    expect(skinned('pixelHomage').player!.skin).toBe('pixelHomage');
-    expect(skinned('softRetro').player!.skin).toBe('softRetro');
+    expect(skinned('pixelCab').player!.skin).toBe('pixelCab');
+    expect(skinned('jetRetro').player!.skin).toBe('jetRetro');
     expect(skinned().player!.skin).toBe('original');
   });
 
   it('each fresh taxi gets the skin picked for it', () => {
-    const s = skinned('pixelHomage');
+    const s = skinned('pixelCab');
     crashPlayer(s);
     play(s, 130);
     expect(s.mode).toBe('destroyed');
     const old = s.player!.id;
-    s.command('respawn', 'softRetro');
+    s.command('respawn', 'jetRetro');
     expect(s.player!.id).not.toBe(old);
-    expect(s.player!.skin).toBe('softRetro');
-    expect(s.world.taxi(old)!.skin).toBe('pixelHomage');
+    expect(s.player!.skin).toBe('jetRetro');
+    expect(s.world.taxi(old)!.skin).toBe('pixelCab');
   });
 
   it('rivals get skins at random, the same for the same server seed, and keep them through a save', () => {

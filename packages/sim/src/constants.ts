@@ -50,14 +50,14 @@ export const EPS = 1e-6;
  * rivals get one at random. Taxis saved before skins existed are the original.
  */
 export const TAXI_SKINS = [
+  'pixelCab',
+  'jetRetro',
   'original',
-  'pixelHomage',
-  'softRetro',
   'neonGhost',
   'cyberTaxi',
   'shuttle',
   'bathCab',
-  'saucerCab',
+  'uap',
 ] as const;
 export type TaxiSkin = (typeof TAXI_SKINS)[number];
 /** A valid skin, or the original for anything else. */

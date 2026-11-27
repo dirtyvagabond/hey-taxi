@@ -108,9 +108,9 @@ describe('accounts persistence', () => {
     expect(a1Again.accountId).toBe(a1.accountId);
     const a2 = await st.createOrSelectAccount('SkyPilot');
     expect(a2.accountId).not.toBe(a1.accountId);
-    await st.touchAccount(a1.accountId, { skin: 'softRetro', color: 0x112233 });
+    await st.touchAccount(a1.accountId, { skin: 'jetRetro', color: 0x112233 });
     const loaded = await st.getAccount(a1.accountId);
-    expect(loaded).toMatchObject({ name: 'Aaron', skin: 'softRetro', color: 0x112233 });
+    expect(loaded).toMatchObject({ name: 'Aaron', skin: 'jetRetro', color: 0x112233 });
     expect((await st.listAccounts()).map((a) => a.name).sort()).toEqual(['Aaron', 'SkyPilot']);
   });
 });

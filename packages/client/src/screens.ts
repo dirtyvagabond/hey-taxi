@@ -41,7 +41,6 @@ function outcomeLines(o: GameOutcome): string[] {
 /** Remembered preferences in this browser. */
 const ACCOUNT_KEY = 'hey-taxi.accountId';
 const SKIN_KEY = 'hey-taxi.skin';
-const COLOR_KEY = 'hey-taxi.color';
 
 function rememberAccount(accountId: string | null): void {
   try {
@@ -62,24 +61,6 @@ function lastSkin(): string | null {
 function rememberSkin(skin: SkinId): void {
   try {
     localStorage.setItem(SKIN_KEY, skin);
-  } catch {
-    // not remembered; no harm
-  }
-}
-function lastColor(): number | undefined {
-  try {
-    const raw = localStorage.getItem(COLOR_KEY);
-    if (raw === null) return undefined;
-    const n = Number(raw);
-    return Number.isInteger(n) && n >= 0 && n <= 0xffffff ? n : undefined;
-  } catch {
-    return undefined;
-  }
-}
-function rememberColor(color: number | undefined): void {
-  try {
-    if (color === undefined) localStorage.removeItem(COLOR_KEY);
-    else localStorage.setItem(COLOR_KEY, String(color));
   } catch {
     // not remembered; no harm
   }
@@ -164,7 +145,6 @@ export class ScreenController {
     this.currentAccountName = account?.name ?? '';
     rememberAccount(account?.accountId ?? null);
     if (account?.skin) rememberSkin(account.skin as SkinId);
-    if (typeof account?.color === 'number') rememberColor(account.color);
     this.lobby.update(accounts, account, servers);
     // Recover if the lobby was closed eagerly (e.g., joinServer failed and server returned lobby).
     if (this.hooks.getStatus()?.mode === 'menu' && !this.review.isOpen && !this.picker && !this.lobby.isOpen) {
@@ -337,11 +317,10 @@ export class ScreenController {
     this.picker?.close();
     this.hooks.clearKeys();
     this.picker = new SkinPicker(
-      { title, sub, selected: lastSkin(), color: lastColor() },
+      { title, sub, selected: lastSkin() },
       (skin, color) => {
         this.picker = null;
         rememberSkin(skin);
-        rememberColor(color);
         go(skin, color);
       },
       () => {

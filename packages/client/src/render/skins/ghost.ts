@@ -160,7 +160,7 @@ class NeonGhostArt implements SkinArt {
 export const NEON_GHOST: SkinDef = {
   id: 'neonGhost',
   name: 'NEON GHOST',
-  playerColor: NEON_GHOST_CYAN,
+  playerColor: 0xff8c38,
   thrusters: { topY: -9.4, bottomY: 9.6 },
   create: (color) => new NeonGhostArt(color),
 };

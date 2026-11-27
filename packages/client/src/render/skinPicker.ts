@@ -26,26 +26,55 @@ const SIDE_ALPHA = 0.5;
 
 interface PaintSwatch {
   name: string;
-  /** undefined = use each skin's default playerColor (classic yellow/gold). */
-  color: number | undefined;
-  /** Swatch display color. */
-  preview: number;
+  /** 24-bit RGB paint color. */
+  color: number;
 }
 
 const SWATCHES: PaintSwatch[] = [
-  { name: 'Classic Gold', color: undefined, preview: 0xffc83d },
-  { name: 'Crimson', color: 0xff4d6d, preview: 0xff4d6d },
-  { name: 'Cobalt', color: 0x4ea8ff, preview: 0x4ea8ff },
-  { name: 'Emerald', color: 0x4ee68c, preview: 0x4ee68c },
-  { name: 'Tangerine', color: 0xff8c38, preview: 0xff8c38 },
-  { name: 'Violet', color: 0xb97aff, preview: 0xb97aff },
-  { name: 'Arctic Cyan', color: 0x4ef2f2, preview: 0x4ef2f2 },
-  { name: 'Pearl White', color: 0xf0f4ff, preview: 0xf0f4ff },
-  { name: 'Hot Pink', color: 0xff6fae, preview: 0xff6fae },
+  { name: 'Classic Gold', color: 0xffc83d },
+  { name: 'Crimson', color: 0xff4d6d },
+  { name: 'Cobalt', color: 0x4ea8ff },
+  { name: 'Emerald', color: 0x4ee68c },
+  { name: 'Tangerine', color: 0xff8c38 },
+  { name: 'Violet', color: 0xb97aff },
+  { name: 'Arctic Cyan', color: 0x4ef2f2 },
+  { name: 'Pearl White', color: 0xf0f4ff },
+  { name: 'Hot Pink', color: 0xff6fae },
 ];
+
+const SESSION_COLORS_KEY = 'hey-taxi.skinColors';
+
+function loadSessionColors(): Partial<Record<SkinId, number>> {
+  try {
+    const raw = sessionStorage.getItem(SESSION_COLORS_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    if (!parsed || typeof parsed !== 'object') return {};
+    const out: Partial<Record<SkinId, number>> = {};
+    for (const [k, v] of Object.entries(parsed)) {
+      if (typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= 0xffffff) {
+        out[k as SkinId] = v;
+      }
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+function saveSessionColor(skin: SkinId, color: number): void {
+  try {
+    const map = loadSessionColors();
+    map[skin] = color;
+    sessionStorage.setItem(SESSION_COLORS_KEY, JSON.stringify(map));
+  } catch {
+    // storage unavailable; no harm
+  }
+}
 
 interface Card {
   id: SkinId;
+  color: number;
   root: Container;
   frame: Graphics;
   name: Text;
@@ -60,7 +89,6 @@ export class SkinPicker {
   private strip = new Container();
   private cards: Card[];
   private index: number;
-  private color: number | undefined;
   private swatchRings: Graphics[] = [];
   private customRing: Graphics;
   private customFill: Graphics;
@@ -71,11 +99,11 @@ export class SkinPicker {
   private done = false;
 
   constructor(
-    o: { title: string; sub: string; selected: string | null; color?: number },
+    o: { title: string; sub: string; selected: string | null },
     private onPick: (skin: SkinId, color?: number) => void,
     private onCancel: () => void,
   ) {
-    this.color = o.color;
+    const savedColors = loadSessionColors();
     this.root.addChild(new Graphics().rect(0, 0, VIEW_W, VIEW_H).fill({ color: 0x05070f, alpha: 0.97 }));
     const title = makeText(o.title, { fontSize: 40, fill: 0xffc83d, letterSpacing: 4 });
     title.anchor.set(0.5);
@@ -101,7 +129,8 @@ export class SkinPicker {
         .fill(0x1c2244)
         .rect(CARD_W / 2 - 110, groundY, 220, 2)
         .fill(0x6170c4);
-      const view = new TaxiView(this.color ?? skin.playerColor, false, skin.id);
+      const cardColor = savedColors[skin.id] ?? skin.playerColor;
+      const view = new TaxiView(cardColor, false, skin.id);
       art.addChild(view.root);
       const name = makeText(skin.name.toUpperCase(), { fontSize: 18, fill: HUD_COLORS.text, letterSpacing: 2 });
       name.anchor.set(0.5);
@@ -115,7 +144,7 @@ export class SkinPicker {
         else this.select(i);
       });
       this.strip.addChild(card);
-      return { id: skin.id, root: card, frame, name, view, art, gear: 0 };
+      return { id: skin.id, color: cardColor, root: card, frame, name, view, art, gear: 0 };
     });
 
     // Edge arrows: step through the carousel.
@@ -151,12 +180,12 @@ export class SkinPicker {
     const rowW = SWATCHES.length * swatchSize + (SWATCHES.length - 1) * swatchGap + 22 + customW;
     const startX = VIEW_W / 2 - rowW / 2;
 
-    SWATCHES.forEach((sw, i) => {
-      const sx = startX + i * (swatchSize + swatchGap);
+    SWATCHES.forEach((sw) => {
+      const sx = startX + this.swatchRings.length * (swatchSize + swatchGap);
       const box = new Container();
       box.position.set(sx, rowY);
       const ring = new Graphics();
-      const fill = new Graphics().roundRect(0, 0, swatchSize, swatchSize, 6).fill(sw.preview);
+      const fill = new Graphics().roundRect(0, 0, swatchSize, swatchSize, 6).fill(sw.color);
       box.addChild(ring, fill);
       box.eventMode = 'static';
       box.cursor = 'pointer';
@@ -228,7 +257,8 @@ export class SkinPicker {
   }
 
   moveColor(step: number): void {
-    const cur = SWATCHES.findIndex((s) => s.color === this.color);
+    const activeColor = this.cards[this.index]!.color;
+    const cur = SWATCHES.findIndex((s) => s.color === activeColor);
     const base = cur >= 0 ? cur : 0;
     const next = (base + step + SWATCHES.length) % SWATCHES.length;
     this.setColor(SWATCHES[next]!.color);
@@ -236,10 +266,9 @@ export class SkinPicker {
 
   confirm(): void {
     if (this.done) return;
-    const skin = this.cards[this.index]!.id;
-    const color = this.color;
+    const card = this.cards[this.index]!;
     this.close();
-    this.onPick(skin, color);
+    this.onPick(card.id, card.color);
   }
 
   cancel(): void {
@@ -284,16 +313,15 @@ export class SkinPicker {
     });
   }
 
-  private setColor(color: number | undefined): void {
+  private setColor(color: number): void {
     if (this.done) return;
-    this.color = color;
-    this.cards.forEach((c, i) => {
-      const skin = SKINS[i]!;
-      c.art.removeChild(c.view.root);
-      c.view.destroy();
-      c.view = new TaxiView(this.color ?? skin.playerColor, false, skin.id);
-      c.art.addChild(c.view.root);
-    });
+    const card = this.cards[this.index]!;
+    card.color = color;
+    card.art.removeChild(card.view.root);
+    card.view.destroy();
+    card.view = new TaxiView(color, false, card.id);
+    card.art.addChild(card.view.root);
+    saveSessionColor(card.id, color);
     this.refreshSwatches();
   }
 
@@ -312,13 +340,14 @@ export class SkinPicker {
       document.body.appendChild(input);
       this.colorInput = input;
     }
-    const hex = (this.color ?? 0xffc83d).toString(16).padStart(6, '0');
+    const hex = this.cards[this.index]!.color.toString(16).padStart(6, '0');
     this.colorInput.value = `#${hex}`;
     this.colorInput.click();
   }
 
   private refreshSwatches(): void {
-    const swIdx = SWATCHES.findIndex((s) => s.color === this.color);
+    const activeColor = this.cards[this.index]!.color;
+    const swIdx = SWATCHES.findIndex((s) => s.color === activeColor);
     const isCustom = swIdx === -1;
     this.swatchRings.forEach((ring, i) => {
       ring.clear();
@@ -332,13 +361,13 @@ export class SkinPicker {
       .fill({ color: 0x161b36, alpha: 0.95 })
       .stroke({ width: isCustom ? 2.5 : 1, color: isCustom ? 0xffffff : 0x3b4980 });
     this.customFill.clear();
-    this.customFill.roundRect(6, 6, 18, 18, 4).fill(this.color ?? 0xffc83d);
+    this.customFill.roundRect(6, 6, 18, 18, 4).fill(activeColor);
 
     const label = isCustom
-      ? `PAINT · CUSTOM #${this.color!.toString(16).padStart(6, '0').toUpperCase()}`
+      ? `PAINT · CUSTOM #${activeColor.toString(16).padStart(6, '0').toUpperCase()}`
       : `PAINT · ${SWATCHES[swIdx]!.name.toUpperCase()}`;
     this.colorLabel.text = label;
-    this.colorLabel.style.fill = this.color ?? 0xffc83d;
+    this.colorLabel.style.fill = activeColor;
   }
 
   private select(i: number): void {
@@ -359,5 +388,6 @@ export class SkinPicker {
       const on = k === i;
       this.dots.circle(start + k * dotGap, 0, on ? 4 : 2.5).fill(on ? 0xffc83d : 0x3b4980);
     }
+    this.refreshSwatches();
   }
 }

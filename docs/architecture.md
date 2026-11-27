@@ -35,7 +35,7 @@ Authoritative Node.js game server:
 
 Browser client built with Vite and PixiJS 8:
 
-- **Rendering (`src/render/`):** Tile world, environmental effects, passengers, missiles, particles, HUD, landing guides, and modular taxi skins (`skins/original.ts`, `skins/pixel.ts`, `skins/softRetro.ts`). Dev builds expose a skin preview matrix at `http://localhost:5174/?skins`.
+- **Rendering (`src/render/`):** Tile world, environmental effects, passengers, missiles, particles, HUD, landing guides, and modular taxi skins (`skins/pixelCab.ts`, `skins/jetRetro.ts`, `skins/original.ts`, etc.). Dev builds expose a skin preview matrix at `http://localhost:5174/?skins`.
 - **Audio & speech (`src/audio.ts`, `src/voice.ts`):** Pure Web Audio API synthesizer with zero binary asset files — engine hiss/rumble, thrusters, explosions, alarms, cash/UI cues, and procedural C64-style formant passenger speech.
 - **UI overlays:** HTML overlays for the account/server lobby (`lobby.ts`), World Overview (`overview.ts`), Game review (`review.ts`), settings (`ui/settings.ts`), and live `lil-gui` tuning panel (`debug.ts`).
 
