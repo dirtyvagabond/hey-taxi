@@ -358,6 +358,17 @@ export const SHUTTLE: SkinDef = {
   id: 'shuttle',
   name: 'SHUTTLE',
   playerColor: SHUTTLE_WHITE,
-  thrusters: { leftX: -25, rightX: 25, topY: -2, bottomY: 10 },
+  thrusters: {
+    tail: [
+      { x: -24.6, y: 3.0, scale: 0.85 },
+      { x: -24.9, y: 6.7, scale: 0.9 },
+    ],
+    nose: { x: 24.9, y: 6.8 },
+    top: { x: 0, y: -1.7 },
+    bottom: [
+      { x: -6, y: 10 },
+      { x: 6, y: 10 },
+    ],
+  },
   create: (color) => new ShuttleArt(color),
 };

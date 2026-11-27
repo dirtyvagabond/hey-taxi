@@ -206,5 +206,14 @@ export const BATH_CAB: SkinDef = {
   id: 'bathCab',
   name: 'BATH CAB',
   playerColor: BATH_CAB_YELLOW,
+  thrusters: {
+    tail: { x: -20.5, y: 3 },
+    nose: { x: 24, y: -2.1 },
+    top: { x: -3, y: -5.1 },
+    bottom: [
+      { x: -8, y: 9.5 },
+      { x: 3, y: 9.5 },
+    ],
+  },
   create: (color) => new BathCabArt(color),
 };

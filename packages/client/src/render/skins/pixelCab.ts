@@ -266,5 +266,9 @@ export const PIXEL_CAB: SkinDef = {
   id: 'pixelCab',
   name: 'Pixel Cab',
   playerColor: PIXEL_CAB_YELLOW,
+  thrusters: {
+    tail: { x: -24, y: 2 },
+    nose: { x: 24, y: 6 },
+  },
   create: (color) => new PixelCabArt(color),
 };

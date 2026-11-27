@@ -40,16 +40,26 @@ export interface SkinArt {
   setRider(kind: number | null): void;
 }
 
-/** Optional thruster flame anchor offsets in taxi-local (right-facing) units. */
+/** A single thruster flame nozzle in right-facing taxi-local units. */
+export interface ThrusterNozzle {
+  x: number;
+  y: number;
+  /** Optional flame length/width multiplier (default 1). */
+  scale?: number;
+}
+
+export type NozzleSpec = ThrusterNozzle | readonly ThrusterNozzle[];
+
+/** Optional thruster flame anchors in right-facing taxi-local units (mirrored automatically when facing left). */
 export interface SkinThrusters {
-  /** Tail (left) thruster x when facing right (default -TAXI.halfW). */
-  leftX?: number;
-  /** Nose (right) thruster x when facing right (default +TAXI.halfW). */
-  rightX?: number;
-  /** Top (downward-thrust) nozzle y (default -TAXI.halfH). */
-  topY?: number;
-  /** Bottom (upward-thrust) nozzle y (default +TAXI.halfH). */
-  bottomY?: number;
+  /** Rear (tail) nozzle(s), firing -x when facing right (default: { x: -TAXI.halfW, y: 0 }). */
+  tail?: NozzleSpec;
+  /** Front (nose) nozzle(s), firing +x when facing right (default: { x: +TAXI.halfW, y: 0 }). */
+  nose?: NozzleSpec;
+  /** Top nozzle(s), firing -y for downward thrust (default: { x: 0, y: -TAXI.halfH }). */
+  top?: NozzleSpec;
+  /** Bottom nozzle(s), firing +y for upward thrust (default: [{ x: -6, y: +TAXI.halfH }, { x: 6, y: +TAXI.halfH }]). */
+  bottom?: NozzleSpec;
 }
 
 export interface SkinDef {

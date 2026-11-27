@@ -301,6 +301,14 @@ export const SHORT_BUS: SkinDef = {
   id: 'shortBus',
   name: 'THE SHORT BUS',
   playerColor: SHORT_BUS_YELLOW,
-  thrusters: { leftX: -21, rightX: 21, topY: -9.2, bottomY: 8.5 },
+  thrusters: {
+    tail: { x: -21, y: 3.5 },
+    nose: { x: 21, y: 3.5 },
+    top: { x: -6, y: -9.2 },
+    bottom: [
+      { x: -6, y: 8.2 },
+      { x: 6, y: 8.2 },
+    ],
+  },
   create: (color) => new ShortBusArt(color),
 };

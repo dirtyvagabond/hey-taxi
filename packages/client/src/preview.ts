@@ -9,8 +9,8 @@
  */
 import { Application, Container, Graphics } from 'pixi.js';
 import { DEFAULT_CONFIG, Input, TAXI, type Taxi } from '@hey-taxi/sim';
-import { SKINS } from './render/skins';
-import { TaxiView } from './render/taxi';
+import { SKINS, type SkinDef, type SkinId, type SkinThrusters, type ThrusterNozzle } from './render/skins';
+import { loadThrusterOverrides, resolveThrusters, saveThrusterOverride, TaxiView } from './render/taxi';
 import { makeText, setTextResolution } from './render/text';
 import { COLORS } from './render/world';
 
@@ -83,7 +83,7 @@ export async function startSkinPreview(): Promise<void> {
   title.position.set(8, 6);
   stage.addChild(title);
 
-  const views: { view: TaxiView; pose: Pose; x: number; y: number }[] = [];
+  const views: { skinId: SkinId; view: TaxiView; pose: Pose; x: number; y: number }[] = [];
   const top = 26;
   const left = 70;
   SKINS.forEach((skin, row) => {
@@ -106,7 +106,7 @@ export async function startSkinPreview(): Promise<void> {
       );
       const view = new TaxiView(pose.color ?? skin.playerColor, false, skin.id);
       stage.addChild(view.root);
-      views.push({ view, pose, x: cx, y: cy });
+      views.push({ skinId: skin.id, view, pose, x: cx, y: cy });
       if (row === 0) {
         const label = makeText(pose.label, { fontSize: 5, fill: 0x8a93b8 });
         label.anchor.set(0.5, 0);
@@ -115,6 +115,22 @@ export async function startSkinPreview(): Promise<void> {
       }
     });
   });
+
+  // Live thruster editor overlay.
+  let forcedThrust: number | null = null;
+  let forcedFacing: 1 | -1 | null = null;
+  mountThrusterEditor(
+    SKINS,
+    (skinId, thrusters) => {
+      for (const v of views) {
+        if (v.skinId === skinId) v.view.setThrusters(thrusters);
+      }
+    },
+    (thrust, facing) => {
+      forcedThrust = thrust;
+      forcedFacing = facing;
+    },
+  );
 
   // Actual size: the game draws the world at about this scale on a typical window.
   const actualY = top + SKINS.length * CELL_H + 10;
@@ -159,12 +175,12 @@ export async function startSkinPreview(): Promise<void> {
     const t = still ? 0.9 : time;
     for (const { view, pose, x, y } of views) {
       const val = <T,>(v: T | ((t: number) => T) | undefined, d: T) => (v === undefined ? d : typeof v === 'function' ? (v as (t: number) => T)(t) : v);
-      const thrust = val(pose.thrust, 0);
+      const thrust = forcedThrust !== null ? forcedThrust : val(pose.thrust, 0);
       const side = thrust & (Input.LEFT | Input.RIGHT);
       const taxi = fakeTaxi({
         gear: val(pose.gear, 0),
         thrust,
-        facing: pose.facing ?? (side === Input.LEFT ? -1 : 1),
+        facing: forcedFacing ?? pose.facing ?? (side === Input.LEFT ? -1 : 1),
         hp: pose.hp ?? DEFAULT_CONFIG.taxiMaxHp,
         vx: pose.vx ?? 0,
       });
@@ -172,4 +188,246 @@ export async function startSkinPreview(): Promise<void> {
       view.setRider(pose.rider ? 1 : null);
     }
   });
+}
+
+type NozzleGroup = 'tail' | 'nose' | 'top' | 'bottom';
+const GROUPS: readonly NozzleGroup[] = ['tail', 'nose', 'top', 'bottom'];
+
+interface MutableThrusters {
+  tail: ThrusterNozzle[];
+  nose: ThrusterNozzle[];
+  top: ThrusterNozzle[];
+  bottom: ThrusterNozzle[];
+}
+
+function cloneThrusters(def: SkinDef, override?: SkinThrusters): MutableThrusters {
+  const r = resolveThrusters(override ?? def.thrusters);
+  return {
+    tail: r.tail.map((n) => ({ ...n })),
+    nose: r.nose.map((n) => ({ ...n })),
+    top: r.top.map((n) => ({ ...n })),
+    bottom: r.bottom.map((n) => ({ ...n })),
+  };
+}
+
+function formatNozzle(n: ThrusterNozzle): string {
+  const s = n.scale !== undefined && n.scale !== 1 ? `, scale: ${n.scale}` : '';
+  return `{ x: ${n.x}, y: ${n.y}${s} }`;
+}
+
+function formatThrustersTS(t: MutableThrusters): string {
+  const lines = GROUPS.map((g) => {
+    const arr = t[g];
+    if (arr.length === 1) return `    ${g}: ${formatNozzle(arr[0]!)},`;
+    return `    ${g}: [\n${arr.map((n) => `      ${formatNozzle(n)},`).join('\n')}\n    ],`;
+  });
+  return `  thrusters: {\n${lines.join('\n')}\n  },`;
+}
+
+/** Floating panel on `?skins` for live-editing nozzle coordinates and copying TS snippets. */
+function mountThrusterEditor(
+  skins: readonly SkinDef[],
+  onChange: (skinId: SkinId, thrusters: SkinThrusters) => void,
+  onForceThrust: (thrust: number | null, facing: 1 | -1 | null) => void,
+): void {
+  const saved = loadThrusterOverrides();
+  const state = new Map<SkinId, MutableThrusters>(skins.map((s) => [s.id, cloneThrusters(s, saved[s.id])]));
+  let activeSkin: SkinId = skins[0]!.id;
+  let collapsed = false;
+
+  const panel = document.createElement('div');
+  panel.style.cssText = [
+    'position:fixed',
+    'top:10px',
+    'right:10px',
+    'width:280px',
+    'max-height:calc(100vh - 20px)',
+    'overflow-y:auto',
+    'background:rgba(10,14,32,0.94)',
+    'color:#e6ebff',
+    'border:1px solid #3b4980',
+    'border-radius:8px',
+    'padding:10px',
+    'font:12px/1.35 ui-monospace,SFMono-Regular,Menlo,monospace',
+    'z-index:1000',
+    'box-shadow:0 8px 24px rgba(0,0,0,0.45)',
+  ].join(';');
+  panel.addEventListener('wheel', (e) => e.stopPropagation());
+  document.body.appendChild(panel);
+
+  const btnStyle = 'background:#1c2448;color:#e6ebff;border:1px solid #3b4980;border-radius:4px;padding:3px 7px;cursor:pointer;font:inherit;';
+  const inputStyle = 'width:54px;background:#0a0e20;color:#fff;border:1px solid #3b4980;border-radius:3px;padding:2px 4px;font:inherit;';
+
+  const presets: { label: string; thrust: number | null; facing: 1 | -1 | null }[] = [
+    { label: 'Auto', thrust: null, facing: null },
+    { label: 'Tail →', thrust: Input.RIGHT, facing: 1 },
+    { label: 'Nose ←', thrust: Input.LEFT, facing: 1 },
+    { label: 'Up ↑', thrust: Input.UP, facing: 1 },
+    { label: 'Down ↓', thrust: Input.DOWN, facing: 1 },
+    { label: 'All', thrust: Input.UP | Input.DOWN | Input.LEFT | Input.RIGHT, facing: 1 },
+  ];
+  let activePreset = 0;
+
+  const render = () => {
+    panel.innerHTML = '';
+
+    const header = document.createElement('div');
+    header.style.cssText = 'display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;';
+    const title = document.createElement('strong');
+    title.textContent = 'THRUSTER EDITOR';
+    title.style.color = '#ffc83d';
+    const toggle = document.createElement('button');
+    toggle.textContent = collapsed ? '+' : '–';
+    toggle.style.cssText = btnStyle;
+    toggle.onclick = () => {
+      collapsed = !collapsed;
+      render();
+    };
+    header.append(title, toggle);
+    panel.appendChild(header);
+    if (collapsed) return;
+
+    // Skin selector.
+    const sel = document.createElement('select');
+    sel.style.cssText = 'width:100%;margin-bottom:8px;background:#0a0e20;color:#fff;border:1px solid #3b4980;border-radius:4px;padding:4px;font:inherit;';
+    for (const s of skins) {
+      const opt = document.createElement('option');
+      opt.value = s.id;
+      opt.textContent = s.name;
+      if (s.id === activeSkin) opt.selected = true;
+      sel.appendChild(opt);
+    }
+    sel.onchange = () => {
+      activeSkin = sel.value as SkinId;
+      render();
+    };
+    panel.appendChild(sel);
+
+    // Force-thrust preview buttons.
+    const presetRow = document.createElement('div');
+    presetRow.style.cssText = 'display:flex;flex-wrap:wrap;gap:4px;margin-bottom:10px;';
+    presets.forEach((p, idx) => {
+      const b = document.createElement('button');
+      b.textContent = p.label;
+      b.style.cssText = btnStyle + (idx === activePreset ? 'border-color:#ffc83d;color:#ffc83d;' : '');
+      b.onclick = () => {
+        activePreset = idx;
+        onForceThrust(p.thrust, p.facing);
+        render();
+      };
+      presetRow.appendChild(b);
+    });
+    panel.appendChild(presetRow);
+
+    // Nozzle groups.
+    const cur = state.get(activeSkin)!;
+    const emit = () => {
+      saveThrusterOverride(activeSkin, cur);
+      onChange(activeSkin, cur);
+    };
+
+    for (const group of GROUPS) {
+      const sec = document.createElement('div');
+      sec.style.cssText = 'margin-bottom:8px;padding-top:6px;border-top:1px solid #222b52;';
+
+      const rowHead = document.createElement('div');
+      rowHead.style.cssText = 'display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;';
+      const lbl = document.createElement('span');
+      lbl.textContent = group;
+      lbl.style.color = '#9aa8d9';
+      const addBtn = document.createElement('button');
+      addBtn.textContent = '+ nozzle';
+      addBtn.style.cssText = btnStyle + 'font-size:11px;padding:1px 5px;';
+      addBtn.onclick = () => {
+        const last = cur[group][cur[group].length - 1] ?? { x: 0, y: 0 };
+        cur[group].push({ x: last.x, y: last.y + 2 });
+        emit();
+        render();
+      };
+      rowHead.append(lbl, addBtn);
+      sec.appendChild(rowHead);
+
+      cur[group].forEach((n, idx) => {
+        const r = document.createElement('div');
+        r.style.cssText = 'display:flex;align-items:center;gap:4px;margin-bottom:4px;';
+
+        const makeNum = (label: string, val: number, onVal: (v: number) => void, step = 0.5) => {
+          const wrap = document.createElement('label');
+          wrap.style.cssText = 'display:flex;align-items:center;gap:2px;';
+          const span = document.createElement('span');
+          span.textContent = label;
+          span.style.color = '#8a93b8';
+          const inp = document.createElement('input');
+          inp.type = 'number';
+          inp.step = String(step);
+          inp.value = String(val);
+          inp.style.cssText = inputStyle;
+          inp.oninput = () => {
+            const parsed = parseFloat(inp.value);
+            if (!Number.isNaN(parsed)) {
+              onVal(parsed);
+              emit();
+            }
+          };
+          wrap.append(span, inp);
+          return wrap;
+        };
+
+        r.append(
+          makeNum('x', n.x, (v) => (n.x = v)),
+          makeNum('y', n.y, (v) => (n.y = v)),
+          makeNum('s', n.scale ?? 1, (v) => (n.scale = v === 1 ? undefined : v), 0.05),
+        );
+
+        if (cur[group].length > 1) {
+          const rm = document.createElement('button');
+          rm.textContent = '×';
+          rm.style.cssText = btnStyle + 'padding:1px 5px;color:#ff6b6b;';
+          rm.onclick = () => {
+            cur[group].splice(idx, 1);
+            emit();
+            render();
+          };
+          r.appendChild(rm);
+        }
+        sec.appendChild(r);
+      });
+
+      panel.appendChild(sec);
+    }
+
+    // Actions: Copy TS / Reset.
+    const actions = document.createElement('div');
+    actions.style.cssText = 'display:flex;gap:6px;margin-top:8px;padding-top:8px;border-top:1px solid #222b52;';
+    const copyBtn = document.createElement('button');
+    copyBtn.textContent = 'Copy TS';
+    copyBtn.style.cssText = btnStyle + 'flex:1;border-color:#ffc83d;color:#ffc83d;';
+    copyBtn.onclick = async () => {
+      const txt = formatThrustersTS(cur);
+      try {
+        await navigator.clipboard.writeText(txt);
+        copyBtn.textContent = 'Copied!';
+        setTimeout(() => (copyBtn.textContent = 'Copy TS'), 1200);
+      } catch {
+        console.log(txt);
+        copyBtn.textContent = 'Logged to console';
+        setTimeout(() => (copyBtn.textContent = 'Copy TS'), 1500);
+      }
+    };
+    const resetBtn = document.createElement('button');
+    resetBtn.textContent = 'Reset';
+    resetBtn.style.cssText = btnStyle;
+    resetBtn.onclick = () => {
+      const def = skins.find((s) => s.id === activeSkin)!;
+      const fresh = cloneThrusters(def);
+      state.set(activeSkin, fresh);
+      saveThrusterOverride(activeSkin, null);
+      onChange(activeSkin, fresh);
+      render();
+    };
+    actions.append(copyBtn, resetBtn);
+    panel.appendChild(actions);
+  };
+
+  render();
 }

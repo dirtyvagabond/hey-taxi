@@ -1,6 +1,6 @@
 import { Container, Graphics, type Text } from 'pixi.js';
 import { archetypeColor, Input, personalityArchetype, shortTaxiName, TAXI, type Taxi } from '@hey-taxi/sim';
-import { skinDef, type HullStage, type SkinArt, type SkinId, type SkinThrusters } from './skins';
+import { skinDef, type HullStage, type NozzleSpec, type SkinArt, type SkinId, type SkinThrusters, type ThrusterNozzle } from './skins';
 import { makeText } from './text';
 
 const { halfW: HW, halfH: HH } = TAXI;
@@ -19,6 +19,65 @@ export function hullStage(hp: number, maxHp: number): HullStage {
 export const PIP = { w: 5, h: 4, gap: 2 };
 const PIP_EMPTY = 0x5d668c;
 
+const DEFAULT_TAIL: readonly ThrusterNozzle[] = [{ x: -HW, y: 0 }];
+const DEFAULT_NOSE: readonly ThrusterNozzle[] = [{ x: HW, y: 0 }];
+const DEFAULT_TOP: readonly ThrusterNozzle[] = [{ x: 0, y: -HH }];
+const DEFAULT_BOTTOM: readonly ThrusterNozzle[] = [
+  { x: -6, y: HH },
+  { x: 6, y: HH },
+];
+
+export interface ResolvedThrusters {
+  tail: readonly ThrusterNozzle[];
+  nose: readonly ThrusterNozzle[];
+  top: readonly ThrusterNozzle[];
+  bottom: readonly ThrusterNozzle[];
+}
+
+function nozzles(spec: NozzleSpec | undefined, fallback: readonly ThrusterNozzle[]): readonly ThrusterNozzle[] {
+  if (!spec) return fallback;
+  return 'x' in spec ? [spec] : spec;
+}
+
+export function resolveThrusters(t?: SkinThrusters): ResolvedThrusters {
+  return {
+    tail: nozzles(t?.tail, DEFAULT_TAIL),
+    nose: nozzles(t?.nose, DEFAULT_NOSE),
+    top: nozzles(t?.top, DEFAULT_TOP),
+    bottom: nozzles(t?.bottom, DEFAULT_BOTTOM),
+  };
+}
+
+const DEV_THRUSTER_OVERRIDES_KEY = 'hey-taxi.devThrusters';
+
+/** Dev helper: load thruster overrides saved by the `?skins` editor. */
+export function loadThrusterOverrides(): Partial<Record<SkinId, SkinThrusters>> {
+  if (!import.meta.env.DEV) return {};
+  try {
+    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(DEV_THRUSTER_OVERRIDES_KEY) : null;
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as unknown;
+    return parsed && typeof parsed === 'object' ? (parsed as Partial<Record<SkinId, SkinThrusters>>) : {};
+  } catch {
+    return {};
+  }
+}
+
+/** Dev helper: save (or clear with `null`) thruster overrides for a skin. */
+export function saveThrusterOverride(skinId: SkinId, thrusters: SkinThrusters | null): void {
+  if (!import.meta.env.DEV) return;
+  try {
+    if (typeof localStorage === 'undefined') return;
+    const map = loadThrusterOverrides();
+    if (thrusters) map[skinId] = thrusters;
+    else delete map[skinId];
+    if (Object.keys(map).length === 0) localStorage.removeItem(DEV_THRUSTER_OVERRIDES_KEY);
+    else localStorage.setItem(DEV_THRUSTER_OVERRIDES_KEY, JSON.stringify(map));
+  } catch {
+    // storage unavailable; ignore
+  }
+}
+
 /**
  * A taxi on screen: its skin's artwork (gear, body, damage, passenger), thruster flames, and
  * the readouts above it. Skins draw inside the physics geometry so crashes look fair.
@@ -27,8 +86,10 @@ export class TaxiView {
   readonly root = new Container();
   /** The skin's layers, mirrored when the taxi faces left. */
   private art = new Container();
+  private skinId: SkinId;
   private skin: SkinArt;
-  private thrusters: SkinThrusters;
+  private thrusters: ResolvedThrusters;
+  private onStorage: ((e: StorageEvent) => void) | null = null;
   private youPing: Text | null = null;
   private flames = new Graphics();
   private hull = new Graphics();
@@ -42,8 +103,19 @@ export class TaxiView {
   /** `npc`: a computer-driven taxi, which always shows its cash, hull, fuel, name, and archetype above the cab. */
   constructor(color = 0xffc83d, npc = false, skin: SkinId | string = 'shortBus') {
     const def = skinDef(skin);
+    this.skinId = def.id;
     this.skin = def.create(color);
-    this.thrusters = def.thrusters ?? {};
+    this.thrusters = resolveThrusters(
+      import.meta.env.DEV ? (loadThrusterOverrides()[def.id] ?? def.thrusters) : def.thrusters,
+    );
+    if (import.meta.env.DEV && typeof window !== 'undefined') {
+      this.onStorage = (e: StorageEvent) => {
+        if (e.key === DEV_THRUSTER_OVERRIDES_KEY) {
+          this.thrusters = resolveThrusters(loadThrusterOverrides()[this.skinId] ?? def.thrusters);
+        }
+      };
+      window.addEventListener('storage', this.onStorage);
+    }
     this.tagged = npc;
     this.art.addChild(this.skin.gear, this.skin.body, this.skin.scars, this.skin.rider);
     this.root.addChild(this.flames, this.art, this.hull, this.fuel);
@@ -96,12 +168,21 @@ export class TaxiView {
   }
 
   destroy(): void {
+    if (this.onStorage && typeof window !== 'undefined') {
+      window.removeEventListener('storage', this.onStorage);
+      this.onStorage = null;
+    }
     this.root.destroy({ children: true });
   }
 
   /** Show a passenger in the cab window (or nobody). */
   setRider(kind: number | null): void {
     this.skin.setRider(kind);
+  }
+
+  /** Override thruster nozzle placement at runtime (for the `?skins` preview editor). */
+  setThrusters(thrusters?: SkinThrusters): void {
+    this.thrusters = resolveThrusters(thrusters);
   }
 
   update(
@@ -279,18 +360,31 @@ export class TaxiView {
         y + dy * len * 0.55,
       ]).fill(0xfff1a8);
     };
-    const leftX = this.thrusters.leftX ?? -HW;
-    const rightX = this.thrusters.rightX ?? HW;
-    const topY = this.thrusters.topY ?? -HH;
-    const bottomY = this.thrusters.bottomY ?? HH;
-    const xRightNozzle = facing === 1 ? rightX : -leftX;
-    const xLeftNozzle = facing === 1 ? leftX : -rightX;
     if (thrust & Input.UP) {
-      flame(-6, bottomY, 0, 1, 18 * flick(0), 4);
-      flame(6, bottomY, 0, 1, 18 * flick(1), 4);
+      this.thrusters.bottom.forEach((n, i) => {
+        const s = n.scale ?? 1;
+        flame(facing * n.x, n.y, 0, 1, 18 * s * flick(i), 4 * s);
+      });
     }
-    if (thrust & Input.DOWN) flame(0, topY, 0, -1, 11 * flick(2), 3);
-    if (thrust & Input.LEFT) flame(xRightNozzle, 0, 1, 0, 13 * flick(3), 3.5);
-    if (thrust & Input.RIGHT) flame(xLeftNozzle, 0, -1, 0, 13 * flick(4), 3.5);
+    if (thrust & Input.DOWN) {
+      this.thrusters.top.forEach((n, i) => {
+        const s = n.scale ?? 1;
+        flame(facing * n.x, n.y, 0, -1, 11 * s * flick(2 + i), 3 * s);
+      });
+    }
+    if (thrust & Input.LEFT) {
+      const list = facing === 1 ? this.thrusters.nose : this.thrusters.tail;
+      list.forEach((n, i) => {
+        const s = n.scale ?? 1;
+        flame(facing * n.x, n.y, 1, 0, 13 * s * flick(3 + i), 3.5 * s);
+      });
+    }
+    if (thrust & Input.RIGHT) {
+      const list = facing === 1 ? this.thrusters.tail : this.thrusters.nose;
+      list.forEach((n, i) => {
+        const s = n.scale ?? 1;
+        flame(facing * n.x, n.y, -1, 0, 13 * s * flick(4 + i), 3.5 * s);
+      });
+    }
   }
 }

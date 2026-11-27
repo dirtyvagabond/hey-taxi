@@ -8,7 +8,7 @@ import { BATH_CAB } from './bathCab';
 import { UAP } from './uap';
 import type { SkinDef } from './types';
 
-export type { HullStage, SkinArt, SkinDef, SkinId, SkinThrusters } from './types';
+export type { HullStage, NozzleSpec, SkinArt, SkinDef, SkinId, SkinThrusters, ThrusterNozzle } from './types';
 
 /** Every taxi skin, in the order the player sees them. */
 export const SKINS: readonly SkinDef[] = [

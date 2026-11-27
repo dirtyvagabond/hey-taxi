@@ -269,6 +269,14 @@ export const CYBER_TAXI: SkinDef = {
   id: 'cyberTaxi',
   name: 'CYBER TAXI',
   playerColor: 0xf0f4ff,
-  thrusters: { topY: -8.6, bottomY: 9.0 },
+  thrusters: {
+    tail: { x: -24, y: 2 },
+    nose: { x: 24, y: 2.5 },
+    top: { x: -3, y: -8.6 },
+    bottom: [
+      { x: -6, y: 9.0 },
+      { x: 6, y: 9.0 },
+    ],
+  },
   create: (color) => new CyberArt(color),
 };

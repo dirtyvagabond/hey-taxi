@@ -197,5 +197,10 @@ export const JET_RETRO: SkinDef = {
   id: 'jetRetro',
   name: 'Jet Retro',
   playerColor: JET_RETRO_COLOR,
+  thrusters: {
+    tail: { x: -24, y: 4.5 },
+    nose: { x: 24, y: 4 },
+    top: { x: -3.5, y: -9.5 },
+  },
   create: (color) => new JetRetroArt(color),
 };

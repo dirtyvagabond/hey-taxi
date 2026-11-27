@@ -212,5 +212,14 @@ export const UAP: SkinDef = {
   id: 'uap',
   name: 'UAP',
   playerColor: UAP_MINT,
+  thrusters: {
+    tail: { x: -24, y: 2.5 },
+    nose: { x: 24, y: 2.5 },
+    top: { x: 0, y: -9.8 },
+    bottom: [
+      { x: -5, y: 9.4 },
+      { x: 5, y: 9.4 },
+    ],
+  },
   create: (color) => new UapArt(color),
 };

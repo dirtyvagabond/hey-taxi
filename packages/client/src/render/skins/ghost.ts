@@ -161,6 +161,14 @@ export const NEON_GHOST: SkinDef = {
   id: 'neonGhost',
   name: 'NEON GHOST',
   playerColor: 0xff8c38,
-  thrusters: { topY: -9.4, bottomY: 9.6 },
+  thrusters: {
+    tail: { x: -24, y: 5 },
+    nose: { x: 24, y: 4.6 },
+    top: { x: -2.5, y: -9.4 },
+    bottom: [
+      { x: -6, y: 9.6 },
+      { x: 6, y: 9.6 },
+    ],
+  },
   create: (color) => new NeonGhostArt(color),
 };
