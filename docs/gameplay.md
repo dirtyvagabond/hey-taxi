@@ -38,7 +38,7 @@ Violet teleport pads connect all eight locales for free. Land on a teleport with
   - `3` Hull repair ($20 per point)
   - `4` One gallon of gas ($2; full tank is 10 gallons)
   - `5` Fill tank (or as much as you can afford)
-- **Running dry & mobile service:** If your tank empties in mid-air, the engines cut out and you fall under gravity. If you touch down safely away from a store, press `R` to summon the **flying convenience service** to refuel or repair at 2× store prices.
+- **Running dry & Rescue Service:** If your tank empties in mid-air, the engines cut out and you fall under gravity. If you touch down safely away from a store, press `R` to summon the **Rescue Service** ambulance to refuel or repair at 2× store prices.
 
 ## Passengers, fares, and tips
 

@@ -310,6 +310,20 @@ export class Sound {
     this.tone({ freq: 590, dur: 0.12, type: 'square', gain: 0.05, filter: 1800, delay: 0.11 });
   }
 
+  /** Rescue Service dispatched: brief retro 2-tone "wee-woo" siren burst. */
+  rescueSummoned(): void {
+    this.tone({ freq: 880, dur: 0.12, type: 'square', gain: 0.055, filter: 1800, delay: 0 });
+    this.tone({ freq: 660, dur: 0.13, type: 'square', gain: 0.055, filter: 1800, delay: 0.13 });
+    this.tone({ freq: 880, dur: 0.12, type: 'square', gain: 0.055, filter: 1800, delay: 0.27 });
+    this.tone({ freq: 660, dur: 0.15, type: 'square', gain: 0.05, filter: 1800, delay: 0.4 });
+  }
+
+  /** Rescue Service touched down beside the taxi: gentle retro arrival chirp. */
+  rescueArrived(): void {
+    this.tone({ freq: 660, dur: 0.08, type: 'triangle', gain: 0.08 });
+    this.tone({ freq: 990, dur: 0.12, type: 'triangle', gain: 0.08, delay: 0.08 });
+  }
+
   tipLost(): void {
     this.tone({ freq: 320, to: 150, dur: 0.16, type: 'square', gain: 0.06, filter: 1200 });
   }

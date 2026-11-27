@@ -64,9 +64,9 @@ npm run build     # build the browser client bundle
 | Toggle landing gear *(side jets only work with gear fully retracted)* | `Space` |
 | Fire heat-seeking missile | `F` |
 | Pop countermeasure flares | `C` |
-| Buy missile / flare burst / hull repair *(at a store or mobile service)* | `1` / `2` / `3` |
-| Buy 1 gallon of gas / fill tank *(at a store or mobile service)* | `4` / `5` |
-| Summon flying convenience service *(while parked away from a store; 2× prices)* | `R` |
+| Buy missile / flare burst / hull repair *(at a store or Rescue Service)* | `1` / `2` / `3` |
+| Buy 1 gallon of gas / fill tank *(at a store or Rescue Service)* | `4` / `5` |
+| Summon Rescue Service ambulance *(while parked away from a store; 2× prices)* | `R` |
 | Teleport destination *(while parked on a violet teleport pad)* | `1`–`7` or click |
 | World overview / spectate locales & taxis | `Tab` (`[` / `]` to cycle) |
 | Co-pilot status panel *(while landed)* | `H` |

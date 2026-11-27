@@ -19,7 +19,7 @@ import {
 import type { LocaleInfo, PlayerAlert } from '@hey-taxi/sim/protocol';
 import { HUD_H, VIEW_H, VIEW_W } from '../camera';
 import { PALETTE } from '../ui/theme';
-import { SERVICE_COLOR } from './service';
+import { RESCUE_RED, RESCUE_WHITE } from './service';
 import { makeText } from './text';
 
 export const HUD_COLORS: Record<'good' | 'warn' | 'bad' | 'info' | 'dim' | 'text', number> = {
@@ -114,7 +114,7 @@ export class Hud {
     this.bar.addChild(this.fuelBar, this.ammo, this.hullPips);
 
     this.controlsHint = this.overlayText(
-      '←↑→↓/WASD thrust · SPACE gear · F missile · C flares · R service · H co-pilot · Z zoom · TAB map · P pause · M mute',
+      '←↑→↓/WASD thrust · SPACE gear · F missile · C flares · R rescue · H co-pilot · Z zoom · TAB map · P pause · M mute',
       12,
       VIEW_W / 2,
       VIEW_H - 20,
@@ -663,20 +663,20 @@ export class Hud {
     shop.root.visible = true;
     const c = sim.config;
     const mult = service ? c.servicePriceMultiplier : 1;
-    const accent = service ? SERVICE_COLOR : 0xff9f1c;
+    const accent = service ? RESCUE_RED : 0xff9f1c;
     if (shop.isService !== service) {
       shop.isService = service;
       drawShopFrame(shop.bg, accent);
     }
     set(
       shop.title,
-      service ? `MOBILE SERVICE · ${mult}× RATES` : 'CORNER STORE · OPEN 24/7',
-      accent,
+      service ? `+ RESCUE SERVICE · ${mult}× RATES` : 'CORNER STORE · OPEN 24/7',
+      service ? RESCUE_WHITE : accent,
     );
     set(
       shop.safe,
       service
-        ? `Flying convenience service · ${mult}× normal store prices`
+        ? `Rescue ambulance · ${mult}× normal store prices`
         : "Safe zone: missiles can't see you while parked here",
       service ? HUD_COLORS.warn : HUD_COLORS.good,
     );
@@ -803,13 +803,13 @@ export class Hud {
       const pad = sim.level.pads[t.padIndex];
       const svc = serviceCraftFor(sim, t.id);
       if (atService(sim, t)) {
-        status = 'MOBILE SERVICE (1–5)';
-        statusColor = SERVICE_COLOR;
+        status = '+ RESCUE SERVICE (1–5)';
+        statusColor = RESCUE_WHITE;
       } else if (svc) {
-        status = 'SERVICE EN ROUTE…';
-        statusColor = SERVICE_COLOR;
+        status = '+ RESCUE EN ROUTE…';
+        statusColor = RESCUE_WHITE;
       } else if (t.fuel <= 0 && !atStore(sim, t)) {
-        status = 'DRY TANK · R SERVICE';
+        status = 'DRY TANK · R RESCUE';
         statusColor = HUD_COLORS.bad;
       } else {
         status = pad
@@ -817,8 +817,8 @@ export class Hud {
             ? 'AT THE STORE'
             : pad.kind === 'teleport'
               ? 'AT THE TELEPORT'
-              : `ON PAD ${pad.label} · R SVC`
-          : 'LANDED · R SERVICE';
+              : `ON PAD ${pad.label} · R RESCUE`
+          : 'LANDED · R RESCUE';
         statusColor = pad?.kind === 'fuel' ? 0xff9f1c : pad?.kind === 'teleport' ? TELEPORT_COLOR : HUD_COLORS.info;
         if (pad?.kind === 'fuel' && t.fuel < c.fuelMax) status = 'BUY GAS (4/5)';
       }

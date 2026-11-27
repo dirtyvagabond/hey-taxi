@@ -863,7 +863,7 @@ class Game {
             HUD_COLORS.bad,
             atStore(this.sim, me) || atService(this.sim, me)
               ? 'Press 4 or 5 to buy gas before taking off'
-              : 'Tank empty · press R to summon mobile service for gas',
+              : 'Tank empty · press R to summon Rescue Service for gas',
           );
         }
       }

@@ -19,7 +19,7 @@ import type { Sound } from './audio';
 import type { Camera } from './camera';
 import { farewellCategory, pickLine, pickUnusedLine, type CommentCategory } from './dialogue';
 import { AMMO_COLORS, HUD_COLORS, type Hud } from './render/hud';
-import { SERVICE_COLOR } from './render/service';
+import { RESCUE_RED, RESCUE_WHITE } from './render/service';
 import {
   arrival,
   decoyBlast,
@@ -196,7 +196,7 @@ export class EventPresenter {
           const at = this.ctx.drawnAt(e.taxiId);
           if (this.isPlayer(e.taxiId)) {
             sound.fuelEmpty();
-            hud.flash('OUT OF FUEL', HUD_COLORS.bad, 'Engines dead · glide to a landing (R for service)');
+            hud.flash('OUT OF FUEL', HUD_COLORS.bad, 'Engines dead · glide to a landing (R for rescue)');
           } else {
             passengers.float(at.x, at.y - 34, 'OUT OF FUEL!', rivalColor(e.taxiId));
           }
@@ -204,18 +204,19 @@ export class EventPresenter {
         }
         case 'serviceSummoned': {
           if (this.isPlayer(e.taxiId)) {
-            hud.flash('SERVICE SUMMONED', SERVICE_COLOR, 'Convenience craft en route · 2× store prices');
+            sound.rescueSummoned();
+            hud.flash('+ RESCUE DISPATCHED', RESCUE_WHITE, 'Rescue ambulance en route · 2× store prices');
           } else {
             const at = this.ctx.drawnAt(e.taxiId);
-            passengers.float(at.x, at.y - 38, 'CALLING SERVICE', SERVICE_COLOR);
+            passengers.float(at.x, at.y - 38, '+ CALLING RESCUE', RESCUE_WHITE);
           }
           break;
         }
         case 'serviceArrived': {
-          arrival(particles, e.x, e.y, SERVICE_COLOR);
+          arrival(particles, e.x, e.y, RESCUE_RED, RESCUE_WHITE);
           if (this.isPlayer(e.taxiId)) {
-            sound.land(0.3, 'smooth');
-            hud.flash('MOBILE SERVICE READY', SERVICE_COLOR, 'Press 1–5 or click to buy · take off to dismiss');
+            sound.rescueArrived();
+            hud.flash('+ RESCUE SERVICE READY', RESCUE_WHITE, 'Press 1–5 or click to buy · take off to dismiss');
           }
           break;
         }

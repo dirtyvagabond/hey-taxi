@@ -565,7 +565,7 @@ export class GameSession {
     }
     if (sim.passengers.some((p) => p.state === 'walking' && p.taxiId === t.id)) return 'Boarding';
     const svc = serviceCraftFor(sim, t.id);
-    if (svc) return svc.status === 'docked' ? 'Mobile service' : 'Waiting for service';
+    if (svc) return svc.status === 'docked' ? 'Rescue Service' : 'Waiting for rescue';
     if (!t.npc) return t.status === 'landed' ? 'Parked' : 'Flying';
     const goal = t.ai?.goal ?? '';
     if (goal.startsWith('emergency:')) return 'Emergency landing';

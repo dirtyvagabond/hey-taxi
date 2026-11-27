@@ -192,11 +192,20 @@ export function missileBlast(ps: Particles, x: number, y: number) {
 }
 
 /** A ring of glowing motes: something has just arrived. */
-export function arrival(ps: Particles, x: number, y: number, color: number) {
+export function arrival(ps: Particles, x: number, y: number, color: number, altColor = color) {
   for (let i = 0; i < 36; i++) {
     const a = (i / 36) * Math.PI * 2;
     const s = rnd(60, 140);
-    ps.emit({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: rnd(0.4, 0.8), size: rnd(1.5, 3), color, drag: 3 });
+    ps.emit({
+      x,
+      y,
+      vx: Math.cos(a) * s,
+      vy: Math.sin(a) * s,
+      life: rnd(0.4, 0.8),
+      size: rnd(1.5, 3),
+      color: i % 2 ? altColor : color,
+      drag: 3,
+    });
   }
 }
 

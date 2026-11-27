@@ -161,13 +161,13 @@ export function describe(e: LedgerEntry, nameOf: (taxiId: string) => string = (i
     case 'tip':
       return `Tip, passenger #${rest}`;
     case 'gas':
-      return kind === 'service' ? 'Gas (mobile service)' : 'Gas';
+      return kind === 'service' ? 'Gas (Rescue Service)' : 'Gas';
     case 'missile':
-      return kind === 'service' ? 'Missile (mobile service)' : 'Missile';
+      return kind === 'service' ? 'Missile (Rescue Service)' : 'Missile';
     case 'flare':
-      return kind === 'service' ? 'Flare burst (mobile service)' : 'Flare burst';
+      return kind === 'service' ? 'Flare burst (Rescue Service)' : 'Flare burst';
     case 'repair':
-      return kind === 'service' ? 'Hull repair (1 point, mobile service)' : 'Hull repair (1 point)';
+      return kind === 'service' ? 'Hull repair (1 point, Rescue Service)' : 'Hull repair (1 point)';
     case 'passengerHit':
       return `Penalty: knocked over passenger #${rest}`;
     case 'destroyed':
