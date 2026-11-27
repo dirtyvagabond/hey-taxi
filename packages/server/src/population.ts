@@ -11,7 +11,16 @@
  * Either response is reserved for `dispatchTimeoutSeconds`, so repeated checks don't dispatch
  * several taxis for the same shortage. Dead rivals stay dead; idle ones are never deleted.
  */
-import { addRival, isActive, TAXI_SKINS, type SimState, type Taxi, type TaxiSkin } from '@hey-taxi/sim';
+import {
+  addRival,
+  extraTaxiSkins,
+  isActive,
+  pickWeightedSkin,
+  TAXI_SKINS,
+  type SimState,
+  type Taxi,
+  type TaxiSkin,
+} from '@hey-taxi/sim';
 import type { Decision, Diagnostics } from '@hey-taxi/sim/protocol';
 import type { Locale, World } from './world';
 
@@ -270,6 +279,7 @@ export class Population {
 
 /** A skin for a new rival, at random (from the population's RNG, so a game replays the same). */
 export function pickRivalSkin(p: PopulationState): TaxiSkin {
+  if (extraTaxiSkins().length > 0) return pickWeightedSkin(random(p), random(p));
   return TAXI_SKINS[Math.min(TAXI_SKINS.length - 1, Math.floor(random(p) * TAXI_SKINS.length))]!;
 }
 

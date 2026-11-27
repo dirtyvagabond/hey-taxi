@@ -1,4 +1,7 @@
-import type { Container } from 'pixi.js';
+import type { Container, Graphics } from 'pixi.js';
+import type { TAXI } from '@hey-taxi/sim';
+import type { Particles } from '../particles';
+import type { lookFor } from '../passengers';
 
 /**
  * How damaged a taxi looks, from its hull points. The first point of damage shows nothing on
@@ -9,7 +12,7 @@ import type { Container } from 'pixi.js';
  */
 export type HullStage = 0 | 1 | 2 | 3 | 4;
 
-export type SkinId =
+export type BuiltinSkinId =
   | 'pixelCab'
   | 'jetRetro'
   | 'shortBus'
@@ -17,7 +20,10 @@ export type SkinId =
   | 'cyberTaxi'
   | 'shuttle'
   | 'bathCab'
-  | 'uap';
+  | 'uap'
+  | 'tacticalTaxi';
+
+export type SkinId = BuiltinSkinId | (string & {});
 
 /**
  * One taxi's artwork in a given skin. Everything is drawn in taxi-local units around the
@@ -62,6 +68,33 @@ export interface SkinThrusters {
   bottom?: NozzleSpec;
 }
 
+/** Custom thruster flame palette (outer plume and bright inner core). */
+export interface FlameColors {
+  outer: number;
+  core: number;
+}
+
+/** Per-tick cosmetic hook context for skins that emit custom client-only particle effects. */
+export interface SkinTickContext {
+  particles: Particles;
+  taxi: { x: number; y: number; vx: number; vy: number; facing?: 1 | -1; thrust: number; status: string };
+  color: number;
+}
+
+/** Runtime SDK passed to external skin plug-ins so they share the host's PixiJS and sim helpers. */
+export interface SkinSDK {
+  Graphics: typeof Graphics;
+  Container: typeof Container;
+  TAXI: typeof TAXI;
+  mix: typeof mix;
+  lookFor: typeof lookFor;
+}
+
+/** Module contract exported by a runtime skin plug-in bundle (`/plugins/<entry>`). */
+export interface SkinPluginModule {
+  register(sdk: SkinSDK): readonly SkinDef[];
+}
+
 export interface SkinDef {
   id: SkinId;
   /** Shown to the player when choosing. */
@@ -70,6 +103,10 @@ export interface SkinDef {
   playerColor: number;
   /** Optional custom thruster flame anchors so flames emerge flush with the hull. */
   thrusters?: SkinThrusters;
+  /** Optional custom thruster flame palette, given the taxi's paint color. */
+  flameColors?: (color: number) => FlameColors;
+  /** Optional per-tick client-only cosmetic effect hook (e.g. motion trails). */
+  onTick?: (ctx: SkinTickContext) => void;
   /** `color`: the body color (the player's yellow, or a rival's own color). */
   create(color: number): SkinArt;
 }

@@ -1,6 +1,6 @@
 import { Container, Graphics, type Text } from 'pixi.js';
 import { archetypeColor, Input, personalityArchetype, shortTaxiName, TAXI, type Taxi } from '@hey-taxi/sim';
-import { skinDef, type HullStage, type NozzleSpec, type SkinArt, type SkinId, type SkinThrusters, type ThrusterNozzle } from './skins';
+import { skinDef, type FlameColors, type HullStage, type NozzleSpec, type SkinArt, type SkinId, type SkinThrusters, type ThrusterNozzle } from './skins';
 import { makeText } from './text';
 
 const { halfW: HW, halfH: HH } = TAXI;
@@ -89,6 +89,7 @@ export class TaxiView {
   private skinId: SkinId;
   private skin: SkinArt;
   private thrusters: ResolvedThrusters;
+  private flamePalette: FlameColors;
   private onStorage: ((e: StorageEvent) => void) | null = null;
   private youPing: Text | null = null;
   private flames = new Graphics();
@@ -105,6 +106,7 @@ export class TaxiView {
     const def = skinDef(skin);
     this.skinId = def.id;
     this.skin = def.create(color);
+    this.flamePalette = def.flameColors ? def.flameColors(color) : { outer: 0xff7a1f, core: 0xfff1a8 };
     this.thrusters = resolveThrusters(
       import.meta.env.DEV ? (loadThrusterOverrides()[def.id] ?? def.thrusters) : def.thrusters,
     );
@@ -348,7 +350,7 @@ export class TaxiView {
       const px = -dy;
       const py = dx;
       f.poly([x + px * w, y + py * w, x - px * w, y - py * w, x + dx * len, y + dy * len]).fill({
-        color: 0xff7a1f,
+        color: this.flamePalette.outer,
         alpha: 0.9,
       });
       f.poly([
@@ -358,7 +360,7 @@ export class TaxiView {
         y - py * w * 0.5,
         x + dx * len * 0.55,
         y + dy * len * 0.55,
-      ]).fill(0xfff1a8);
+      ]).fill(this.flamePalette.core);
     };
     if (thrust & Input.UP) {
       this.thrusters.bottom.forEach((n, i) => {

@@ -46,8 +46,9 @@ export const Input = {
 export const EPS = 1e-6;
 
 /**
- * Taxi skins (how a taxi looks; no effect on play). The player picks one for each new taxi;
- * rivals get one at random. Unknown skins default to THE SHORT BUS (`shortBus`).
+ * Built-in taxi skins (how a taxi looks; no effect on play). The player picks one for each new
+ * taxi; rivals get one at random. Unknown skins default to THE SHORT BUS (`shortBus`).
+ * Optional runtime skin plug-ins may register additional IDs via `registerExtraSkins`.
  */
 export const TAXI_SKINS = [
   'pixelCab',
@@ -58,11 +59,55 @@ export const TAXI_SKINS = [
   'shuttle',
   'bathCab',
   'uap',
+  'tacticalTaxi',
 ] as const;
-export type TaxiSkin = (typeof TAXI_SKINS)[number];
-/** A valid skin, or `shortBus` for anything else. */
+export type BuiltinTaxiSkin = (typeof TAXI_SKINS)[number];
+export type TaxiSkin = BuiltinTaxiSkin | (string & {});
+
+const extraSkins: string[] = [];
+let extraRivalShare = 0.75;
+
+/**
+ * Register additional cosmetic skin IDs loaded from a runtime plug-in.
+ * `rivalShare` (0–1, default 0.75) is the probability a newly spawned rival picks a plug-in skin.
+ */
+export function registerExtraSkins(ids: readonly string[], rivalShare = 0.75): void {
+  extraRivalShare = Math.max(0, Math.min(1, rivalShare));
+  for (const id of ids) {
+    if (typeof id === 'string' && id.length > 0 && !TAXI_SKINS.includes(id as BuiltinTaxiSkin) && !extraSkins.includes(id)) {
+      extraSkins.push(id);
+    }
+  }
+}
+
+/** Clear any registered runtime plug-in skins (primarily for tests). */
+export function clearExtraSkins(): void {
+  extraSkins.length = 0;
+  extraRivalShare = 0.75;
+}
+
+/** Extra skin IDs currently registered from runtime plug-ins. */
+export function extraTaxiSkins(): readonly string[] {
+  return extraSkins;
+}
+
+/** Every valid taxi skin ID (built-in plus any loaded runtime plug-ins). */
+export function allTaxiSkins(): readonly TaxiSkin[] {
+  return [...TAXI_SKINS, ...extraSkins];
+}
+
+/** Pick a rival skin using two uniform [0, 1) draws, favoring plug-in skins when loaded. */
+export function pickWeightedSkin(rPool: number, rPick: number): TaxiSkin {
+  const pool: readonly string[] = extraSkins.length > 0 && rPool < extraRivalShare ? extraSkins : TAXI_SKINS;
+  return pool[Math.min(pool.length - 1, Math.floor(rPick * pool.length))]!;
+}
+
+/** A valid skin (built-in or registered plug-in), or `shortBus` for anything else. */
 export function taxiSkin(s: unknown): TaxiSkin {
-  return TAXI_SKINS.includes(s as TaxiSkin) ? (s as TaxiSkin) : 'shortBus';
+  if (typeof s === 'string' && (TAXI_SKINS.includes(s as BuiltinTaxiSkin) || extraSkins.includes(s))) {
+    return s;
+  }
+  return 'shortBus';
 }
 
 /** A valid 24-bit RGB taxi paint color (0x000000–0xffffff), or undefined for the skin default. */

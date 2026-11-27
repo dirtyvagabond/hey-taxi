@@ -9,7 +9,7 @@
  */
 import { Application, Container, Graphics } from 'pixi.js';
 import { DEFAULT_CONFIG, Input, TAXI, type Taxi } from '@hey-taxi/sim';
-import { SKINS, type SkinDef, type SkinId, type SkinThrusters, type ThrusterNozzle } from './render/skins';
+import { loadSkinPlugins, SKINS, type SkinDef, type SkinId, type SkinThrusters, type ThrusterNozzle } from './render/skins';
 import { loadThrusterOverrides, resolveThrusters, saveThrusterOverride, TaxiView } from './render/taxi';
 import { makeText, setTextResolution } from './render/text';
 import { COLORS } from './render/world';
@@ -71,6 +71,7 @@ function fakeTaxi(o: Partial<Taxi>): Taxi {
 }
 
 export async function startSkinPreview(): Promise<void> {
+  await loadSkinPlugins();
   const still = new URLSearchParams(location.search).has('still');
   const app = new Application();
   await app.init({ resizeTo: window, background: COLORS.sky, antialias: true, autoDensity: true, resolution: Math.min(window.devicePixelRatio || 1, 2) });

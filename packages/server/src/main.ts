@@ -4,15 +4,17 @@
  *   PORT        port to listen on (default 5175; production uses 5173)
  *   HOST        interface to listen on (default 127.0.0.1, this machine only; 0.0.0.0 opens it
  *               to your network — there are no passwords, so only do that on a network you trust)
- *   STATIC_DIR  if set, also serve the built browser client from this folder (production)
- *   BUILD_ID    build identifier; a browser from a different build reloads itself
- *   SAVES_DIR   folder for game save files (default ./saves)
+ *   STATIC_DIR       if set, also serve the built browser client from this folder (production)
+ *   SKIN_PLUGINS_DIR if set, load & serve optional cosmetic skin plug-ins at /plugins/*
+ *   BUILD_ID         build identifier; a browser from a different build reloads itself
+ *   SAVES_DIR        folder for game save files (default ./saves)
  */
 import { randomInt } from 'node:crypto';
-import { createReadStream, statSync } from 'node:fs';
+import { createReadStream, readFileSync, statSync } from 'node:fs';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { extname, join, normalize, resolve, sep } from 'node:path';
 import { WebSocketServer } from 'ws';
+import { registerExtraSkins } from '@hey-taxi/sim';
 import { GameHost } from './host';
 import { GameSession } from './session';
 import { SaveStore } from './store';
@@ -20,14 +22,32 @@ import { SaveStore } from './store';
 const PORT = Number(process.env.PORT ?? 5175);
 const HOST = process.env.HOST || '127.0.0.1';
 const STATIC_DIR = process.env.STATIC_DIR ? resolve(process.env.STATIC_DIR) : null;
+const SKIN_PLUGINS_DIR = process.env.SKIN_PLUGINS_DIR ? resolve(process.env.SKIN_PLUGINS_DIR) : null;
 const BUILD_ID = process.env.BUILD_ID ?? 'dev';
 const SAVES_DIR = resolve(process.env.SAVES_DIR ?? 'saves');
+
+if (SKIN_PLUGINS_DIR) {
+  try {
+    const raw = readFileSync(join(SKIN_PLUGINS_DIR, 'manifest.json'), 'utf8');
+    const manifest = JSON.parse(raw) as { skins?: unknown; rivalShare?: unknown };
+    const ids = Array.isArray(manifest.skins) ? manifest.skins.filter((s): s is string => typeof s === 'string') : [];
+    const share = typeof manifest.rivalShare === 'number' ? manifest.rivalShare : 0.75;
+    registerExtraSkins(ids, share);
+    console.log(`Loaded ${ids.length} skin plug-in(s) from ${SKIN_PLUGINS_DIR} (rival preference: ${Math.round(share * 100)}%)`);
+  } catch (err) {
+    console.warn(`Could not read skin plug-in manifest from ${SKIN_PLUGINS_DIR}:`, (err as Error).message);
+  }
+}
 
 const session = new GameSession({ seed: randomInt(1, 2 ** 31), newSeed: () => randomInt(1, 2 ** 31) });
 const store = new SaveStore(SAVES_DIR);
 const host = new GameHost(session, BUILD_ID, store);
 
 const http = createServer((req, res) => {
+  if (req.url?.startsWith('/plugins/')) {
+    servePlugin(req, res);
+    return;
+  }
   if (STATIC_DIR) serveStatic(STATIC_DIR, req, res);
   else res.writeHead(200, { 'content-type': 'text/plain' }).end('Taxis game server (WebSocket at /ws)');
 });
@@ -78,6 +98,40 @@ const TYPES: Record<string, string> = {
   '.ico': 'image/x-icon',
   '.woff2': 'font/woff2',
 };
+
+function servePlugin(req: IncomingMessage, res: ServerResponse): void {
+  let pathname: string;
+  try {
+    pathname = decodeURIComponent(new URL(req.url ?? '/', 'http://x').pathname);
+  } catch {
+    res.writeHead(400, { 'content-type': 'text/plain' }).end('Bad request');
+    return;
+  }
+  const rel = pathname.slice('/plugins/'.length);
+  if (!SKIN_PLUGINS_DIR) {
+    if (rel === 'manifest.json') {
+      res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-cache' }).end('{"skins":[],"entry":null}');
+    } else {
+      res.writeHead(404).end();
+    }
+    return;
+  }
+  const file = normalize(join(SKIN_PLUGINS_DIR, rel));
+  if (file !== SKIN_PLUGINS_DIR && !file.startsWith(SKIN_PLUGINS_DIR + sep)) {
+    res.writeHead(403).end();
+    return;
+  }
+  const st = statSync(file, { throwIfNoEntry: false });
+  if (!st?.isFile()) {
+    res.writeHead(404).end();
+    return;
+  }
+  res.writeHead(200, {
+    'content-type': TYPES[extname(file)] ?? 'application/octet-stream',
+    'cache-control': 'no-cache',
+  });
+  createReadStream(file).pipe(res);
+}
 
 function serveStatic(base: string, req: IncomingMessage, res: ServerResponse): void {
   let path: string;

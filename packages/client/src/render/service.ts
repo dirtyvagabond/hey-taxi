@@ -42,7 +42,7 @@ const WHEEL = [
 ];
 const WHEEL_W = WHEEL[0]!.length * TEXEL; // 10u
 const WHEEL_H = WHEEL.length * TEXEL; // 8u
-/** Symmetric wheel pod centers (x), matching the body wheel wells; skid outer edges hit ±feetHalfW (±20). */
+/** Symmetric wheel pod centers (x), matching the body wheel wells. */
 const WHEEL_PODS = [-13, 13] as const;
 
 const INK: Record<string, number> = {
@@ -55,8 +55,6 @@ const INK: Record<string, number> = {
 
 const PISTON_SLEEVE = 0x2a2d33;
 const PISTON_ROD = 0xd8e0ec;
-const SKID_DARK = 0x2a2d33;
-const SKID_TOP = 0xc5cfdd;
 
 const textures = new Map<string, Texture>();
 
@@ -131,8 +129,8 @@ class ServiceCraftView {
   }
 
   /**
-   * Cyber Taxi–style wheel landing gear: retracted, the chunky OG yellow wheels sit tucked
-   * in their wheel wells; extending drops them on pistons and slides out skid plates beneath.
+   * Wheel landing gear: retracted, the chunky OG yellow wheels sit tucked in their wheel
+   * wells; extending drops them on pistons so the tires rest flush on the pad at y = 24.
    */
   private updateGear(p: number): void {
     const g = this.gear;
@@ -143,9 +141,8 @@ class ServiceCraftView {
 
     const top = 6; // inside the wheel well
     const bottom = HH + GL; // 24 (exact landing surface)
-    const skidH = 1.6;
     const restTopY = 4; // tucked: bottom sits at y = 12 (2u proud of body, classic OG silhouette)
-    const downTopY = bottom - skidH - WHEEL_H; // extended: wheel rests cleanly on the skid plate
+    const downTopY = bottom - WHEEL_H; // extended: tires rest flush on the pad at y = 24
     const wheelTopY = restTopY + (downTopY - restTopY) * e;
     const wheelCenterY = wheelTopY + WHEEL_H / 2;
 
@@ -157,12 +154,6 @@ class ServiceCraftView {
         // Piston rod + upper sleeve.
         g.moveTo(ax, top).lineTo(ax, wheelCenterY).stroke({ width: 1.6, color: PISTON_ROD });
         g.moveTo(ax, top).lineTo(ax, top + Math.min(wheelCenterY - top, 6)).stroke({ width: 3, color: PISTON_SLEEVE });
-
-        // Skid plate expanding under the wheel (outer edge at ±20 = ±TAXI.feetHalfW when extended).
-        const half = 7 * (0.35 + 0.65 * e);
-        const skidY = wheelTopY + WHEEL_H;
-        g.rect(ax - half, skidY, half * 2, skidH * e).fill(SKID_DARK);
-        g.rect(ax - half, skidY, half * 2, 0.5 * e).fill({ color: SKID_TOP, alpha: 0.85 });
       }
       if (locked) {
         g.rect(ax - 1, wheelTopY - 3, 2, 2).fill(0x6dff8a);

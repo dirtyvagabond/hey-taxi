@@ -158,7 +158,7 @@ class CyberArt implements SkinArt {
 
   /**
    * Retracted, each hex wheel sits tucked up in its arch. Extending drops it on a piston
-   * (a dark sleeve with a chrome rod) and slides out a skid plate under it.
+   * (a dark sleeve with a chrome rod) so the tires rest flush on the pad at y = 24.
    */
   setGear(p: number): void {
     const g = this.gear;
@@ -169,17 +169,13 @@ class CyberArt implements SkinArt {
     const top = 4.6;
     const bottom = TAXI.halfH + TAXI.gearLength; // 24
     const restY = 6.6; // tucked: bottom at 10.0, flush with the hitbox
-    const downY = bottom - 1.4 - r; // wheel resting on the skid plate
+    const downY = bottom - r * Math.sin(Math.PI / 3); // flat bottom of hex tire rests flush on y = 24
     const y = restY + (downY - restY) * e;
     const cap = mix(this.steel, 0xffffff, 0.15);
     for (const ax of PODS) {
       if (e > 0) {
         g.moveTo(ax, top).lineTo(ax, y).stroke({ width: 1.3, color: mix(this.steel, 0xffffff, 0.4) });
         g.moveTo(ax, top).lineTo(ax, top + Math.min(y - top, 6)).stroke({ width: 2.6, color: CLADDING });
-        // Skid plate: the feet box's outer edge is ±feetHalfW, 6u out from the pod center.
-        const half = 6 * (0.3 + 0.7 * e);
-        g.rect(ax - half, y + r, half * 2, 1.4 * e).fill(CLADDING);
-        g.rect(ax - half, y + r, half * 2, 0.4 * e).fill({ color: this.steel, alpha: 0.8 });
       }
       hexWheel(g, ax, y, r, cap);
       if (locked) g.circle(ax, y - r - 1.9, 1.15).fill(0x6dff8a);

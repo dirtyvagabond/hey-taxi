@@ -1,11 +1,11 @@
 /**
- * "SHUTTLE": a side-profile space shuttle orbiter. Stark white
+ * "SHUTTLE": a side-profile orbital space shuttle. Stark white
  * upper fuselage, payload bay doors, OMS pods, and tall swept vertical stabilizer paired
  * with matte-black carbon-carbon nose cap, full-length belly thermal tiles, black-framed
- * flight-deck windows, black wing leading edge, staggered 3-bell SSME cluster + body flap,
- * micro US flag & NASA red accent markings, and asymmetric tricycle landing gear.
+ * flight-deck windows, black wing leading edge, staggered 3-bell main engine cluster + body
+ * flap, micro US flag & checkered taxi payload-bay markings, and asymmetric tricycle landing gear.
  *
- * Default color is pure authentic black-and-white NASA livery. Choosing a custom paint
+ * Default color is classic black-and-white orbital livery. Choosing a custom paint
  * swatch (or rival color) subtly tints the white hull and adds a mission accent band on
  * the tailfin & OMS pod while keeping the black thermal heat shield unmistakable.
  *
@@ -18,7 +18,7 @@ import { TAXI } from '@hey-taxi/sim';
 import { lookFor } from '../passengers';
 import { mix, type HullStage, type SkinArt, type SkinDef } from './types';
 
-/** Default livery color: Pearl White (authentic NASA Space Shuttle white). */
+/** Default livery color: Pearl White (classic orbital shuttle white). */
 export const SHUTTLE_WHITE = 0xf0f4ff;
 const WHITE_SHADE = 0xd2dae8;
 const PANEL_LINE = 0xa9b4c9;
@@ -28,8 +28,9 @@ const NOZZLE = 0x363e52;
 const NOZZLE_DARK = 0x10131c;
 const GLASS = 0x0f172a;
 const GLASS_SHINE = 0x7aa4e6;
-const NASA_RED = 0xdc2626;
+const FLAG_RED = 0xdc2626;
 const FLAG_BLUE = 0x1d4ed8;
+const TAXI_GOLD = 0xffc83d;
 const TIRE = 0x161922;
 const WARN = 0xff3b3b;
 
@@ -145,20 +146,21 @@ function drawBody(g: Graphics, color: number): void {
     g.circle(rx, ry, 0.42).fill(0x0b0e16);
   }
 
-  // --- 6. NASA markings on the white payload bay ---
+  // --- 6. Payload-bay markings ---
   // Crisp micro American flag (blue canton + red/white stripes).
   const fx = -11.4;
   const fy = -1.2;
   g.rect(fx, fy, 4.8, 2.7).fill(0xffffff);
   for (let i = 0; i < 4; i++) {
-    g.rect(fx, fy + i * 0.72, 4.8, 0.36).fill(NASA_RED);
+    g.rect(fx, fy + i * 0.72, 4.8, 0.36).fill(FLAG_RED);
   }
   g.rect(fx, fy, 2.1, 1.45).fill(FLAG_BLUE);
   g.rect(fx, fy, 4.8, 2.7).stroke({ width: 0.25, color: PANEL_LINE, alpha: 0.6 });
 
-  // NASA red "worm" emblem bar & micro-marking on forward payload bay.
-  g.roundRect(1.8, -1.0, 4.8, 0.9, 0.3).fill(NASA_RED);
-  g.rect(2.2, 0.45, 4.0, 0.55).fill(HEAT_SHIELD);
+  // Subtle checkered taxi stripe on the forward payload bay.
+  for (let i = 0; i < 4; i++) {
+    g.rect(1.8 + i * 1.2, -0.9 + (i % 2) * 0.85, 1.2, 0.85).fill(i % 2 === 0 ? HEAT_SHIELD : TAXI_GOLD);
+  }
 
   // Crew access hatch outline below/aft of flight deck.
   g.roundRect(9.2, 1.2, 2.4, 3.0, 0.6).stroke({ width: 0.45, color: PANEL_LINE, alpha: 0.85 });
@@ -231,7 +233,7 @@ class ShuttleArt implements SkinArt {
   private riderKind: number | null = null;
 
   constructor(color: number) {
-    this.accent = color === SHUTTLE_WHITE ? NASA_RED : color;
+    this.accent = color === SHUTTLE_WHITE ? FLAG_RED : color;
     drawBody(this.paint, color);
     this.warn.poly([...SILHOUETTE]).stroke({ width: 4, color: WARN, alpha: 0.9, join: 'round' });
     this.warn.visible = false;
@@ -247,8 +249,8 @@ class ShuttleArt implements SkinArt {
 
   /**
    * Asymmetric tricycle landing gear dropping from open belly doors: heavier aft main gear
-   * under the wings and a slimmer forward nose gear behind the RCC nose cap. Contact pads
-   * sit at y = 24 with outer edges aligned to ±feetHalfW (±20).
+   * under the wings and a slimmer forward nose gear behind the RCC nose cap. Tire bottoms
+   * rest flush on the pad at y = 24 inside ±feetHalfW (±20).
    */
   setGear(p: number): void {
     const g = this.gear;
@@ -259,13 +261,13 @@ class ShuttleArt implements SkinArt {
     const top = 9.4;
     const bottom = TAXI.halfH + TAXI.gearLength; // 24
 
-    // [strutX, wheelRadius, padHalfMax, isMainGear]
-    const legs: readonly (readonly [number, number, number, boolean])[] = [
-      [-14.5, 3.4, 5.5, true],
-      [15.0, 2.5, 5.0, false],
+    // [strutX, wheelRadius, isMainGear]
+    const legs: readonly (readonly [number, number, boolean])[] = [
+      [-14.5, 3.4, true],
+      [15.0, 2.5, false],
     ];
 
-    for (const [ax, wheelR, padMax, isMain] of legs) {
+    for (const [ax, wheelR, isMain] of legs) {
       const wheelY = top + (bottom - wheelR - top) * e;
       // Open black belly gear bay door.
       const doorDir = isMain ? -1 : 1;
@@ -282,9 +284,6 @@ class ShuttleArt implements SkinArt {
       g.moveTo(ax - Math.sign(ax) * (isMain ? 4.2 : 3.2), top + 0.4)
         .lineTo(ax, top + (wheelY - top) * 0.62)
         .stroke({ width: 1.2, color: 0x737e99 });
-      // Subtle ground-contact skid pad aligned to ±feetHalfW (±20).
-      const padHalf = padMax * (0.35 + 0.65 * e);
-      g.roundRect(ax - padHalf, wheelY + wheelR - 1.2, padHalf * 2, 1.2, 0.6).fill(locked ? 0xd6ddff : 0x6b748f);
       // Rubber tire (dual-wheel depth hint on main gear) + metallic hub.
       if (isMain) {
         g.circle(ax - 0.9, wheelY - 0.3, wheelR * 0.92).fill(0x0c0e14);

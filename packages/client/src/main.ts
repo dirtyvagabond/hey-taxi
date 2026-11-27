@@ -46,7 +46,7 @@ import { lockTarget, MissileLayer } from './render/missiles';
 import { arrival, damageSmoke, flareTrail, missileTrail, Particles } from './render/particles';
 import { PassengerLayer } from './render/passengers';
 import { ServiceLayer } from './render/service';
-import { skinDef, type SkinId } from './render/skins';
+import { loadSkinPlugins, skinDef, type SkinId } from './render/skins';
 import { hullStage, TaxiView } from './render/taxi';
 import { setTextResolution } from './render/text';
 import { EnvironmentView } from './render/environment';
@@ -196,6 +196,7 @@ class Game {
   }
 
   async start(): Promise<void> {
+    await loadSkinPlugins();
     await this.app.init({
       resizeTo: window,
       background: 0x000000,
@@ -619,6 +620,11 @@ class Game {
       for (const taxi of this.sim.taxis) {
         if (taxi.status === 'flying' || taxi.status === 'landed') {
           damageSmoke(this.particles, taxi, hullStage(taxi.hp, this.config.taxiMaxHp));
+          const def = skinDef(taxi.skin);
+          if (def.onTick) {
+            const col = taxi.npc ? (taxi.color ?? rivalColor(taxi.id)) : (taxi.color ?? def.playerColor);
+            def.onTick({ particles: this.particles, taxi, color: col });
+          }
         }
       }
       for (const m of this.sim.missiles) if (m.life > 0) missileTrail(this.particles, m.x, m.y, m.vx, m.vy);
