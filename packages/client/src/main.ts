@@ -36,7 +36,7 @@ import {
   VIEW_W,
 } from './camera';
 import { createDebugPanel, loadOptions, resetStorageIfNeeded, saveOptions } from './debug';
-import { pickLine, type CommentCategory } from './dialogue';
+import { isUrgentCategory, pickLine, type CommentCategory } from './dialogue';
 import { EventPresenter, rivalColor } from './events';
 import { Keyboard } from './input';
 import { Connection, type ConnectionState } from './net';
@@ -615,6 +615,7 @@ class Game {
       if (!newLevel) this.teleportedTaxis(before.taxis);
       this.presenter.handle(f.events);
       this.presenter.fuelSounds(fuelBefore, this.taxiById(this.localId)?.fuel ?? 0);
+      this.presenter.checkIncomingMissiles();
       for (const taxi of this.sim.taxis) {
         this.emitExhaust(taxi);
         if (taxi.status === 'flying' || taxi.status === 'landed') {
@@ -767,7 +768,7 @@ class Game {
       kind,
       passengerId,
       category,
-      priority: 'event',
+      priority: isUrgentCategory(category) ? 'urgent' : 'event',
       delay: category === 'board' ? 0.08 : 0,
     });
   }

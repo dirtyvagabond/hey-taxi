@@ -17,7 +17,7 @@ import {
 } from '@hey-taxi/sim';
 import type { Sound } from './audio';
 import type { Camera } from './camera';
-import { farewellCategory, pickLine, pickUnusedLine, type CommentCategory } from './dialogue';
+import { farewellCategory, isUrgentCategory, pickLine, pickUnusedLine, type CommentCategory } from './dialogue';
 import { AMMO_COLORS, HUD_COLORS, type Hud } from './render/hud';
 import { RESCUE_RED, RESCUE_WHITE } from './render/service';
 import {
@@ -54,6 +54,16 @@ const RATING: Record<string, [string, number]> = {
 
 const LOW_FUEL = 0.2;
 const REFUEL_TICK_INTERVAL = 0.09;
+/** Per-cab cooldown (s) between combat/survival passenger reactions so dogfights don't spam. */
+const CHATTER_COOLDOWN_S = 4.0;
+/** Minimum distance (u) at which a closing homing missile can trigger an `incoming` callout. */
+const MIN_INCOMING_THREAT_RANGE = 420;
+const CHANCE_INCOMING = 0.6;
+const CHANCE_PLAYER_FIRED = 0.55;
+const CHANCE_MISSILE_HIT = 0.8;
+const CHANCE_HULL_CRITICAL = 0.85;
+const CHANCE_LOW_FUEL = 0.65;
+const CHANCE_OUT_OF_FUEL = 0.85;
 /** After a bumpy drop-off, the cash sound follows the tip-loss blip by this much. */
 const CASH_AFTER_CUT_MS = 180;
 /** Let the passenger's parting line start cleanly before the cash chime. */
@@ -82,16 +92,28 @@ export class EventPresenter {
   private payingNow = new Set<number>();
   /** Passengers whose drop-off landing cut their tip this tick (the cash sound follows the cut's). */
   private cutAtDropoff = new Set<number>();
+  /** Taxis that took a missile hit or dropped to 1 HP this tick (suppresses mild `rough` barks). */
+  private severeDamageThisTick = new Set<string>();
   /** Dialogue lines already spoken by each passenger in their current trip (so complaints never repeat). */
   private usedLines = new Map<number, Set<string>>();
+  /** Last combat/survival reaction timestamp (sim seconds) and urgency per taxi. */
+  private lastChatter = new Map<string, { at: number; urgent: boolean }>();
+  /** Missile IDs already evaluated for an `incoming` passenger warning. */
+  private seenIncomingMissiles = new Set<number>();
   private refuelTimer = 0;
 
-  constructor(private readonly ctx: EventContext) {}
+  constructor(
+    private readonly ctx: EventContext,
+    private readonly random: () => number = Math.random,
+  ) {}
 
   reset(): void {
     this.payingNow.clear();
     this.cutAtDropoff.clear();
+    this.severeDamageThisTick.clear();
     this.usedLines.clear();
+    this.lastChatter.clear();
+    this.seenIncomingMissiles.clear();
     this.refuelTimer = 0;
   }
 
@@ -101,13 +123,60 @@ export class EventPresenter {
       used = new Set();
       this.usedLines.set(passengerId, used);
     }
-    return pickUnusedLine(category, used, pad);
+    return pickUnusedLine(category, used, pad, this.random);
+  }
+
+  /**
+   * Probabilistically trigger a combat/survival reaction from the rider aboard `taxiId`
+   * (player or spectated cab only), respecting a per-cab cooldown while allowing urgent
+   * warnings to preempt casual chatter.
+   */
+  private tryRiderReaction(taxiId: string, category: CommentCategory, chance: number, life = 1.8): boolean {
+    if (!this.isRelevantTaxi(taxiId)) return false;
+    const p = riderOf(this.ctx.sim, taxiId);
+    if (!p) return false;
+    const now = this.ctx.sim.tick * DT;
+    const urgent = isUrgentCategory(category);
+    const prev = this.lastChatter.get(taxiId);
+    if (prev && now - prev.at < CHATTER_COOLDOWN_S) {
+      if (!urgent || prev.urgent) return false;
+    }
+    if (this.random() >= chance) return false;
+    const line = this.pickUniqueLine(p.id, category);
+    if (!line) return false;
+    this.lastChatter.set(taxiId, { at: now, urgent });
+    this.ctx.passengers.say(`p${p.id}`, line, p.kind, this.aboveTaxi(taxiId), life);
+    this.ctx.speakPassenger(line, p.kind, p.id, category);
+    return true;
+  }
+
+  /**
+   * Check for homing missiles closing in on the player (or spectated) cab and let an
+   * aboard passenger shout an `incoming` warning at most once per missile ID.
+   */
+  checkIncomingMissiles(): void {
+    const { sim, config } = this.ctx;
+    const threatRange = Math.max(config.copilotThreatRange * 1.5, MIN_INCOMING_THREAT_RANGE);
+    for (const m of sim.missiles) {
+      if (m.life <= 0 || m.spoofed || !m.targetId) continue;
+      if (!this.isRelevantTaxi(m.targetId) || this.seenIncomingMissiles.has(m.id)) continue;
+      const t = this.taxiById(m.targetId);
+      if (!t) continue;
+      const dx = t.x - m.x;
+      const dy = t.y - m.y;
+      if (Math.hypot(dx, dy) > threatRange || dx * m.vx + dy * m.vy <= 0) continue;
+      this.seenIncomingMissiles.add(m.id);
+      this.tryRiderReaction(t.id, 'incoming', CHANCE_INCOMING, 1.8);
+    }
   }
 
   handle(events: SimEvent[]): void {
     const { sim, config, particles, sound, hud, passengers, camera } = this.ctx;
     // Passengers paying this tick (a tip cut on that same landing is a drop-off cut).
     this.payingNow = new Set(events.flatMap((e) => (e.type === 'fareCompleted' ? [e.passengerId] : [])));
+    this.severeDamageThisTick = new Set(
+      events.flatMap((e) => (e.type === 'taxiDamaged' && (e.cause === 'missile' || e.hp === 1) ? [e.taxiId] : [])),
+    );
     for (const e of events) {
       switch (e.type) {
         case 'landed': {
@@ -200,6 +269,7 @@ export class EventPresenter {
           } else {
             passengers.float(at.x, at.y - 34, 'OUT OF FUEL!', rivalColor(e.taxiId));
           }
+          this.tryRiderReaction(e.taxiId, 'outOfFuel', CHANCE_OUT_OF_FUEL, 2.0);
           break;
         }
         case 'serviceSummoned': {
@@ -253,6 +323,7 @@ export class EventPresenter {
           break;
         case 'missileFired':
           sound.missileLaunch();
+          this.tryRiderReaction(e.ownerId, 'playerFired', CHANCE_PLAYER_FIRED, 1.8);
           break;
         case 'flaresDeployed': {
           const t = this.taxiById(e.taxiId);
@@ -309,6 +380,13 @@ export class EventPresenter {
               e.byTaxiId === this.ctx.localId ? HUD_COLORS.good : rivalColor(e.taxiId),
             );
           }
+          if (e.hp === 1) {
+            this.severeDamageThisTick.add(e.taxiId);
+            this.tryRiderReaction(e.taxiId, 'hullCritical', CHANCE_HULL_CRITICAL, 1.8);
+          } else if (missile) {
+            this.severeDamageThisTick.add(e.taxiId);
+            this.tryRiderReaction(e.taxiId, 'missileHit', CHANCE_MISSILE_HIT, 1.8);
+          }
           break;
         }
         case 'purchase':
@@ -343,6 +421,7 @@ export class EventPresenter {
     if (after < before && before > max * LOW_FUEL && after <= max * LOW_FUEL && after > 0) {
       this.ctx.sound.lowFuel();
       this.ctx.hud.flash('LOW FUEL', HUD_COLORS.warn, 'Buy gas at a store (4 / 5) · an empty tank explodes');
+      this.tryRiderReaction(this.ctx.localId, 'lowFuel', CHANCE_LOW_FUEL, 2.0);
     }
     if (after > before) {
       this.refuelTimer -= DT;
@@ -454,7 +533,14 @@ export class EventPresenter {
           placed: true,
         });
         // The rider complains mid-ride; at drop-off their parting line says it instead.
-        if (p && e.reason !== 'okLanding' && e.reason !== 'wrongLanding' && !dropOff) {
+        // Skip mild `rough` barks when a missile hit or critical hull already handled the reaction.
+        if (
+          p &&
+          e.reason !== 'okLanding' &&
+          e.reason !== 'wrongLanding' &&
+          !dropOff &&
+          !this.severeDamageThisTick.has(e.taxiId)
+        ) {
           const line = this.pickUniqueLine(p.id, 'rough');
           if (line) {
             passengers.say(`p${p.id}`, line, p.kind, this.aboveTaxi(e.taxiId), 1.4);
@@ -466,10 +552,11 @@ export class EventPresenter {
       case 'wrongLanding': {
         const p = this.passenger(e.passengerId);
         if (p) {
-          const line = this.pickUniqueLine(p.id, 'late');
+          const destLabel = pads[p.destPadIndex]?.label ?? '';
+          const line = this.pickUniqueLine(p.id, 'wrongPad', destLabel);
           if (line) {
             passengers.say(`p${p.id}`, line, p.kind, this.aboveTaxi(e.taxiId), 1.8);
-            if (this.isRelevantTaxi(e.taxiId)) this.ctx.speakPassenger(line, p.kind, p.id, 'late');
+            if (this.isRelevantTaxi(e.taxiId)) this.ctx.speakPassenger(line, p.kind, p.id, 'wrongPad');
           }
         }
         break;

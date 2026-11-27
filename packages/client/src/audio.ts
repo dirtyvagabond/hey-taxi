@@ -1,6 +1,10 @@
 import type { CommentCategory } from './dialogue';
 import { synthesizePassengerVoice } from './voice';
 
+export type VoicePriority = 'hail' | 'event' | 'urgent';
+
+const VOICE_PRIORITY_RANK: Record<VoicePriority, number> = { hail: 0, event: 1, urgent: 2 };
+
 /**
  * Synthesized sound effects and procedural C64 passenger speech (Web Audio, zero asset files).
  * The AudioContext is created on the first key/pointer press because browsers block audio
@@ -11,7 +15,7 @@ export class Sound {
   private master: GainNode | null = null;
   private noise: AudioBuffer | null = null;
   private engine: { gain: GainNode; filter: BiquadFilterNode; rumble: GainNode } | null = null;
-  private activeVoice: { src: AudioBufferSourceNode; priority: 'event' | 'hail'; endsAt: number } | null = null;
+  private activeVoice: { src: AudioBufferSourceNode; priority: VoicePriority; endsAt: number } | null = null;
   private voiceEnabled = true;
   private volume = 0.6;
   private muted = false;
@@ -134,8 +138,9 @@ export class Sound {
   }
 
   /**
-   * Monophonic C64 formant speech channel. Direct player events (`priority: 'event'`)
-   * preempt ambient pad hails (`priority: 'hail'`), while hails never interrupt an active line.
+   * Monophonic C64 formant speech channel. Priority order: `urgent` > `event` > `hail`.
+   * Higher or equal non-hail priority preempts active speech; `hail` never interrupts, and
+   * normal `event` lines never interrupt an active `urgent` warning.
    */
   speak(
     text: string,
@@ -143,7 +148,7 @@ export class Sound {
       kind: number;
       passengerId: number;
       category: CommentCategory;
-      priority: 'event' | 'hail';
+      priority: VoicePriority;
       delay?: number;
       pan?: number;
       gainScale?: number;
@@ -152,7 +157,9 @@ export class Sound {
     const ctx = this.ctx;
     if (!ctx || !this.master || this.muted || !this.voiceEnabled || ctx.state === 'suspended') return false;
     if (this.isVoiceSpeaking()) {
+      const current = this.activeVoice!.priority;
       if (opts.priority === 'hail') return false;
+      if (VOICE_PRIORITY_RANK[opts.priority] < VOICE_PRIORITY_RANK[current]) return false;
       this.stopVoice();
     }
     const rendered = synthesizePassengerVoice(text, opts);
