@@ -336,10 +336,10 @@ describe('taxi skins', () => {
   const skinned = (skin?: string, seed = 1) =>
     startedSession(seed, { skin: skin as TaxiSkin | undefined });
 
-  it('the player picks the skin when joining; anything unknown defaults to original on respawn', () => {
+  it('the player picks the skin when joining; anything unknown defaults to shortBus on respawn', () => {
     expect(skinned('pixelCab').player!.skin).toBe('pixelCab');
     expect(skinned('jetRetro').player!.skin).toBe('jetRetro');
-    expect(skinned().player!.skin).toBe('original');
+    expect(skinned().player!.skin).toBe('shortBus');
   });
 
   it('each fresh taxi gets the skin picked for it', () => {
@@ -357,14 +357,14 @@ describe('taxi skins', () => {
   it('rivals get skins at random, the same for the same server seed, and keep them through a save', () => {
     const rivals = (s: GameSession) =>
       s.world.locales.flatMap((l) => l.sim.taxis.filter((t) => t.npc).map((t) => `${t.id}:${t.skin}`));
-    const a = skinned('original', 5);
-    const b = skinned('original', 5);
+    const a = skinned('shortBus', 5);
+    const b = skinned('shortBus', 5);
     play(a, 60 * 60);
     play(b, 60 * 60);
     expect(rivals(a)).toEqual(rivals(b));
     const skins = new Set(a.world.locales.flatMap((l) => l.sim.taxis.filter((t) => t.npc).map((t) => t.skin)));
     for (const k of skins) expect(TAXI_SKINS).toContain(k);
-    const all = new Set([1, 2, 3, 4, 5, 6].flatMap((seed) => rivals(skinned('original', seed)).map((r) => r.split(':')[1])));
+    const all = new Set([1, 2, 3, 4, 5, 6].flatMap((seed) => rivals(skinned('shortBus', seed)).map((r) => r.split(':')[1])));
     expect(all.size).toBeGreaterThan(1);
     const save = decode<GameSave>(encode(a.toSave()));
     const c = new GameSession({ seed: 5 });

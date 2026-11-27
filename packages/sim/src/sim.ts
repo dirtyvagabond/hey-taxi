@@ -65,7 +65,7 @@ export interface Taxi {
    * delivery, flies to a teleport pad and waits there to be transferred.
    */
   relocateTo: string | null;
-  /** How it looks (TAXI_SKINS). Missing in saves from before skins: the original. */
+  /** How it looks (TAXI_SKINS). Defaults to `shortBus`. */
   skin: TaxiSkin;
   /** Optional custom 24-bit RGB paint color (undefined = skin default / rival palette). */
   color?: number;
@@ -309,7 +309,7 @@ function newTaxi(id: string, npc: boolean): Taxi {
     crashes: 0,
     passengerId: -1,
     relocateTo: null,
-    skin: 'original',
+    skin: 'shortBus',
     facing: 1,
     sideHeld: 0,
     copilot: { countermeasureProficiency: 80 }, // replaced by a seeded roll at creation

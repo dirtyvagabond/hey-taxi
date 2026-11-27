@@ -40,7 +40,7 @@ export class TaxiView {
   private tagged: boolean;
 
   /** `npc`: a computer-driven taxi, which always shows its cash, hull, fuel, name, and archetype above the cab. */
-  constructor(color = 0xffc83d, npc = false, skin: SkinId | string = 'original') {
+  constructor(color = 0xffc83d, npc = false, skin: SkinId | string = 'shortBus') {
     const def = skinDef(skin);
     this.skin = def.create(color);
     this.thrusters = def.thrusters ?? {};

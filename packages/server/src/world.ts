@@ -119,7 +119,7 @@ export class World {
       id,
       opts.balanceCents !== undefined ? { balanceCents: opts.balanceCents } : undefined,
     );
-    taxi.skin = opts.skin ?? 'original';
+    taxi.skin = opts.skin ?? 'shortBus';
     if (opts.color !== undefined) taxi.color = opts.color;
     const displayName = opts.taxiNumber === 1 ? opts.name : `${opts.name} #${opts.taxiNumber}`;
     this.taxis[id] = {

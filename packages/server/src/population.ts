@@ -274,6 +274,6 @@ export function pickRivalSkin(p: PopulationState): TaxiSkin {
 }
 
 /** Create a new rival in a locale's simulation (used by the world). */
-export function addRivalTo(sim: SimState, id: string, skin: TaxiSkin = 'original'): void {
+export function addRivalTo(sim: SimState, id: string, skin: TaxiSkin = 'shortBus'): void {
   addRival(sim, id, 1).skin = skin;
 }

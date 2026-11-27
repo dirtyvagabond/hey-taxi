@@ -12,7 +12,7 @@ export type HullStage = 0 | 1 | 2 | 3 | 4;
 export type SkinId =
   | 'pixelCab'
   | 'jetRetro'
-  | 'original'
+  | 'shortBus'
   | 'neonGhost'
   | 'cyberTaxi'
   | 'shuttle'

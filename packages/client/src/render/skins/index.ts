@@ -1,6 +1,6 @@
 import { PIXEL_CAB } from './pixelCab';
 import { JET_RETRO } from './jetRetro';
-import { ORIGINAL } from './original';
+import { SHORT_BUS } from './shortBus';
 import { NEON_GHOST } from './ghost';
 import { CYBER_TAXI } from './cyber';
 import { SHUTTLE } from './shuttle';
@@ -14,7 +14,7 @@ export type { HullStage, SkinArt, SkinDef, SkinId, SkinThrusters } from './types
 export const SKINS: readonly SkinDef[] = [
   PIXEL_CAB,
   JET_RETRO,
-  ORIGINAL,
+  SHORT_BUS,
   NEON_GHOST,
   CYBER_TAXI,
   SHUTTLE,
@@ -22,7 +22,7 @@ export const SKINS: readonly SkinDef[] = [
   UAP,
 ];
 
-/** A skin by ID; anything unknown (an older save, a typo) is CLAUDE'S BUS. */
+/** A skin by ID; anything unknown defaults to THE SHORT BUS. */
 export function skinDef(id: string | null | undefined): SkinDef {
-  return SKINS.find((s) => s.id === id) ?? ORIGINAL;
+  return SKINS.find((s) => s.id === id) ?? SHORT_BUS;
 }

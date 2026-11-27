@@ -47,12 +47,12 @@ export const EPS = 1e-6;
 
 /**
  * Taxi skins (how a taxi looks; no effect on play). The player picks one for each new taxi;
- * rivals get one at random. Taxis saved before skins existed are the original.
+ * rivals get one at random. Unknown skins default to THE SHORT BUS (`shortBus`).
  */
 export const TAXI_SKINS = [
   'pixelCab',
   'jetRetro',
-  'original',
+  'shortBus',
   'neonGhost',
   'cyberTaxi',
   'shuttle',
@@ -60,9 +60,9 @@ export const TAXI_SKINS = [
   'uap',
 ] as const;
 export type TaxiSkin = (typeof TAXI_SKINS)[number];
-/** A valid skin, or the original for anything else. */
+/** A valid skin, or `shortBus` for anything else. */
 export function taxiSkin(s: unknown): TaxiSkin {
-  return TAXI_SKINS.includes(s as TaxiSkin) ? (s as TaxiSkin) : 'original';
+  return TAXI_SKINS.includes(s as TaxiSkin) ? (s as TaxiSkin) : 'shortBus';
 }
 
 /** A valid 24-bit RGB taxi paint color (0x000000–0xffffff), or undefined for the skin default. */

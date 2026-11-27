@@ -894,7 +894,7 @@ export class GameSession {
    * An account joins this server. First-time visitors get their first taxi with `startMoney`
    * and see the welcome card; returning accounts resume right where they left off.
    */
-  joinAccount(account: Account, skin: TaxiSkin = 'original', color?: number): void {
+  joinAccount(account: Account, skin: TaxiSkin = 'shortBus', color?: number): void {
     if (!this.hasGame) throw new Error('no server loaded');
     // If another account was previously active on this server, stash their living taxi safely.
     for (const other of Object.values(this.players)) {
@@ -1062,7 +1062,7 @@ export class GameSession {
    * A fresh taxi in the first locale, in the same ongoing server: full tank, hull, missiles and
    * flares, carrying the player account's exact persistent dollar balance (no new opening grant).
    */
-  private respawn(skin: TaxiSkin = 'original', color?: number): void {
+  private respawn(skin: TaxiSkin = 'shortBus', color?: number): void {
     const ps = this.currentPlayer;
     if (!ps) return;
     ps.taxiCount++;
