@@ -26,6 +26,23 @@ export const PALETTE = {
 
 export const FONT_STACK = 'ui-monospace, "SF Mono", Menlo, Consolas, monospace';
 
+/** Higher-readability Commodore 64 VIC-II palette for choice menus and modals. */
+export const C64 = {
+  bezel: 0x7869c4,
+  screen: 0x2c216b,
+  screenAlt: 0x352879,
+  text: 0xffffff,
+  accent: 0xbfce72,
+  good: 0x9ad284,
+  dim: 0xa69bf0,
+  disabled: 0x6c60a8,
+  danger: 0x883932,
+  dangerLight: 0xe88b84,
+  cyan: 0x67b6bd,
+} as const;
+
+export const C64_FONT_STACK = '"PetMe64", ui-monospace, "SF Mono", Menlo, Consolas, monospace';
+
 export const hex = (c: number): string => `#${c.toString(16).padStart(6, '0')}`;
 
 /** Format integer cents as currency with a proper minus sign (e.g. "$12.50", "−$5.00"). */
@@ -96,6 +113,18 @@ const THEME_CSS = `
   --tx-gold: ${hex(PALETTE.gold)};
   --tx-teleport: ${hex(PALETTE.teleport)};
   --tx-font: ${FONT_STACK};
+  --c64-bezel: ${hex(C64.bezel)};
+  --c64-screen: ${hex(C64.screen)};
+  --c64-screen-alt: ${hex(C64.screenAlt)};
+  --c64-text: ${hex(C64.text)};
+  --c64-accent: ${hex(C64.accent)};
+  --c64-good: ${hex(C64.good)};
+  --c64-dim: ${hex(C64.dim)};
+  --c64-disabled: ${hex(C64.disabled)};
+  --c64-danger: ${hex(C64.danger)};
+  --c64-danger-light: ${hex(C64.dangerLight)};
+  --c64-cyan: ${hex(C64.cyan)};
+  --c64-font: ${C64_FONT_STACK};
 }
 .tx-btn {
   font: inherit;

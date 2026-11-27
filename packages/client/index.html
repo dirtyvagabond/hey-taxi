@@ -5,7 +5,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Hey, Taxi!</title>
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='2' y='10' width='28' height='12' rx='4' fill='%23ffc83d'/%3E%3Crect x='9' y='12' width='14' height='4' rx='1' fill='%231b2a4a'/%3E%3C/svg%3E" />
+    <link rel="preload" href="/fonts/PetMe64.ttf" as="font" type="font/ttf" crossorigin />
     <style>
+      @font-face {
+        font-family: "PetMe64";
+        src: url("/fonts/PetMe64.ttf") format("truetype");
+        font-weight: normal;
+        font-style: normal;
+        font-display: swap;
+      }
       html, body { margin: 0; height: 100%; overflow: hidden; background: #000; }
       canvas { display: block; }
     </style>

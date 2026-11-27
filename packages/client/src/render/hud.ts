@@ -18,9 +18,9 @@ import {
 } from '@hey-taxi/sim';
 import type { LocaleInfo, PlayerAlert } from '@hey-taxi/sim/protocol';
 import { HUD_H, VIEW_H, VIEW_W } from '../camera';
-import { PALETTE } from '../ui/theme';
-import { RESCUE_RED, RESCUE_WHITE } from './service';
-import { makeText } from './text';
+import { C64, PALETTE } from '../ui/theme';
+import { RESCUE_WHITE } from './service';
+import { makeC64Text, makeText } from './text';
 
 export const HUD_COLORS: Record<'good' | 'warn' | 'bad' | 'info' | 'dim' | 'text', number> = {
   good: PALETTE.good,
@@ -89,15 +89,23 @@ export class Hud {
   private flashSub = this.overlayText('', 16, VIEW_W / 2, 126);
   private alertVisible = false;
   private pauseLayer = new Container();
+  private pauseBg = new Graphics();
+  private pauseTitle!: Text;
   private pauseSub!: Text;
   private pauseButtons = new Container();
   private pauseHint!: Text;
   private card = new Container();
   private cardBg = new Graphics();
-  private cardTitle = makeText('', { fontSize: 34, fill: HUD_COLORS.text, letterSpacing: 2, align: 'center' });
-  private cardBody = makeText('', { fontSize: 16, fill: HUD_COLORS.text, lineHeight: 26 });
+  private cardTitle = makeC64Text('', { fontSize: 22, fill: C64.accent, letterSpacing: 1, align: 'center', lineHeight: 32 });
+  private cardBody = makeC64Text('', {
+    fontSize: 12,
+    fill: C64.text,
+    lineHeight: 22,
+    wordWrap: true,
+    wordWrapWidth: VIEW_W - 160,
+  });
   private cardButtons = new Container();
-  private cardFooter = makeText('', { fontSize: 14, fill: HUD_COLORS.dim });
+  private cardFooter = makeC64Text('', { fontSize: 10, fill: C64.dim });
   private flashTime = 0;
   private menu: Container | null = null;
   private menuItems: Text[] = [];
@@ -122,18 +130,14 @@ export class Hud {
     this.controlsHint.alpha = 0.55;
     this.controlsHint.visible = false;
 
-    const dim = new Graphics().rect(-2000, -2000, VIEW_W + 4000, VIEW_H + 4000).fill({ color: 0x000000, alpha: 0.62 });
-    const paused = makeText('PAUSED', { fontSize: 48, fill: HUD_COLORS.text, letterSpacing: 8 });
-    paused.anchor.set(0.5);
-    paused.position.set(VIEW_W / 2, VIEW_H / 2 - 58);
-    this.pauseSub = makeText('', { fontSize: 13, fill: HUD_COLORS.info, letterSpacing: 2 });
+    const dim = new Graphics().rect(-2000, -2000, VIEW_W + 4000, VIEW_H + 4000).fill({ color: 0x000000, alpha: 0.68 });
+    this.pauseTitle = makeC64Text('PAUSED', { fontSize: 28, fill: C64.accent, letterSpacing: 4 });
+    this.pauseTitle.anchor.set(0.5);
+    this.pauseSub = makeC64Text('', { fontSize: 11, fill: C64.dim, letterSpacing: 1 });
     this.pauseSub.anchor.set(0.5);
-    this.pauseSub.position.set(VIEW_W / 2, VIEW_H / 2 - 14);
-    this.pauseButtons.position.set(VIEW_W / 2, VIEW_H / 2 + 28);
-    this.pauseHint = makeText('P / ESC to resume · Q for server menu', { fontSize: 13, fill: HUD_COLORS.dim });
+    this.pauseHint = makeC64Text('P / ESC TO RESUME · Q FOR SERVER MENU', { fontSize: 10, fill: C64.dim });
     this.pauseHint.anchor.set(0.5);
-    this.pauseHint.position.set(VIEW_W / 2, VIEW_H / 2 + 78);
-    this.pauseLayer.addChild(dim, paused, this.pauseSub, this.pauseButtons, this.pauseHint);
+    this.pauseLayer.addChild(dim, this.pauseBg, this.pauseTitle, this.pauseSub, this.pauseButtons, this.pauseHint);
     this.pauseLayer.visible = false;
     this.overlay.addChild(this.pauseLayer);
 
@@ -189,13 +193,25 @@ export class Hud {
   ): void {
     this.pauseLayer.visible = paused;
     const cfg = typeof opts === 'string' ? { hint: opts } : opts;
-    const hint = cfg.hint ?? 'P / ESC to resume · Q for server menu';
-    const sub = cfg.subtitle ?? '';
+    const hint = (cfg.hint ?? 'P / ESC to resume · Q for server menu').toUpperCase();
+    const sub = (cfg.subtitle ?? '').toUpperCase();
     if (this.pauseSub.text !== sub) this.pauseSub.text = sub;
     if (this.pauseHint.text !== hint) this.pauseHint.text = hint;
     if (paused && cfg.actions) {
-      renderActionRow(this.pauseButtons, cfg.actions);
-      this.pauseHint.position.set(VIEW_W / 2, VIEW_H / 2 + 80);
+      const btnRowW = renderActionRow(this.pauseButtons, cfg.actions);
+      const w = Math.min(
+        VIEW_W - 48,
+        Math.max(540, this.pauseTitle.width + 80, this.pauseSub.width + 80, btnRowW + 72, this.pauseHint.width + 80),
+      );
+      const h = sub ? 228 : 200;
+      const x = (VIEW_W - w) / 2;
+      const y = (VIEW_H - h) / 2;
+      drawC64Frame(this.pauseBg, x, y, w, h, C64.bezel);
+      this.pauseTitle.position.set(VIEW_W / 2, y + 48);
+      this.pauseSub.visible = Boolean(sub);
+      this.pauseSub.position.set(VIEW_W / 2, y + 82);
+      this.pauseButtons.position.set(VIEW_W / 2, y + (sub ? 132 : 112));
+      this.pauseHint.position.set(VIEW_W / 2, y + h - 32);
     } else if (!paused) {
       this.pauseButtons.removeChildren().forEach((c) => c.destroy({ children: true }));
     }
@@ -426,26 +442,29 @@ export class Hud {
     wide?: boolean;
     actions?: HudAction[];
   }): void {
-    this.cardTitle.text = o.kicker ? `${o.kicker}\n${o.title}` : o.title;
-    this.cardTitle.style.fill = o.color;
+    const bezelColor =
+      o.color === HUD_COLORS.bad ? C64.danger : o.color === HUD_COLORS.warn ? C64.accent : C64.bezel;
+    const titleColor =
+      o.color === HUD_COLORS.bad ? C64.dangerLight : o.color === HUD_COLORS.warn ? C64.accent : C64.accent;
+    this.cardTitle.text = (o.kicker ? `${o.kicker}\n${o.title}` : o.title).toUpperCase();
+    this.cardTitle.style.fill = titleColor;
     this.cardBodySize ??= Number(this.cardBody.style.fontSize);
-    this.cardBody.style.fontSize = o.wide ? 13 : this.cardBodySize;
+    this.cardBody.style.fontSize = o.wide ? 10 : this.cardBodySize;
     this.cardBody.text = o.body;
     this.cardBody.style.align = o.align ?? 'center';
-    this.cardFooter.text = o.footer;
+    this.cardFooter.text = o.footer.toUpperCase();
     const hasActions = !!o.actions?.length;
     const btnRowW = hasActions ? renderActionRow(this.cardButtons, o.actions!) : 0;
     if (!hasActions) this.cardButtons.removeChildren().forEach((c) => c.destroy({ children: true }));
     const btnBlockH = hasActions ? 52 : 0;
-    const w = Math.max(560, this.cardBody.width + 80, this.cardTitle.width + 80, btnRowW + 80);
-    const h = 36 + this.cardTitle.height + 24 + this.cardBody.height + btnBlockH + 24 + this.cardFooter.height + 28;
+    const w = Math.min(
+      VIEW_W - 48,
+      Math.max(580, this.cardBody.width + 88, this.cardTitle.width + 88, btnRowW + 88, this.cardFooter.width + 88),
+    );
+    const h = 38 + this.cardTitle.height + 24 + this.cardBody.height + btnBlockH + 24 + this.cardFooter.height + 34;
     const x = (VIEW_W - w) / 2;
     const y = (VIEW_H - h) / 2;
-    this.cardBg.clear();
-    this.cardBg
-      .roundRect(x, y, w, h, 14)
-      .fill({ color: PALETTE.surface, alpha: 0.96 })
-      .stroke({ width: 2, color: o.color, alpha: 0.75 });
+    drawC64Frame(this.cardBg, x, y, w, h, bezelColor);
     this.cardTitle.position.set(VIEW_W / 2, y + 36);
     this.cardBody.position.set(VIEW_W / 2, this.cardTitle.y + this.cardTitle.height + 24);
     this.cardButtons.position.set(VIEW_W / 2, this.cardBody.y + this.cardBody.height + 34);
@@ -632,15 +651,14 @@ export class Hud {
     };
     destinations.forEach((d, i) => {
       const line =
-        `[${i + 1}]  ${d.name.padEnd(20)} fares ×${d.fareMultiplier.toFixed(2)}  ` +
-        `${d.size}× · ${d.waiting} waiting · ${d.taxis} taxi${d.taxis === 1 ? '' : 's'}`;
-      set(panel.rows[i]!.text, line, riding ? HUD_COLORS.dim : HUD_COLORS.text);
-      panel.rows[i]!.setEnabled(!riding);
+        `[${i + 1}] ${d.name.toUpperCase().padEnd(18)} x${d.fareMultiplier.toFixed(2)}  ` +
+        `${d.size}x · ${d.waiting} WAIT · ${d.taxis} TAXI${d.taxis === 1 ? '' : 'S'}`;
+      panel.rows[i]!.setRow(line, riding ? C64.disabled : C64.text, !riding);
     });
     set(
       panel.note,
-      riding ? 'Drop off your passenger first: teleports need an empty cab' : 'Free travel. You keep everything you have.',
-      riding ? HUD_COLORS.warn : HUD_COLORS.good,
+      riding ? 'DROP OFF YOUR PASSENGER FIRST: NEED AN EMPTY CAB' : 'FREE TRAVEL · YOU KEEP EVERYTHING YOU HAVE',
+      riding ? C64.accent : C64.good,
     );
   }
 
@@ -663,33 +681,33 @@ export class Hud {
     shop.root.visible = true;
     const c = sim.config;
     const mult = service ? c.servicePriceMultiplier : 1;
-    const accent = service ? RESCUE_RED : 0xff9f1c;
+    const bezel = service ? C64.danger : C64.bezel;
     if (shop.isService !== service) {
       shop.isService = service;
-      drawShopFrame(shop.bg, accent);
+      drawShopFrame(shop.bg, bezel);
     }
     set(
       shop.title,
-      service ? `+ RESCUE SERVICE · ${mult}× RATES` : 'CORNER STORE · OPEN 24/7',
-      service ? RESCUE_WHITE : accent,
+      service ? `+ RESCUE SERVICE · ${mult}x RATES` : 'CORNER STORE · OPEN 24/7',
+      service ? C64.dangerLight : C64.accent,
     );
     set(
       shop.safe,
       service
-        ? `Rescue ambulance · ${mult}× normal store prices`
-        : "Safe zone: missiles can't see you while parked here",
-      service ? HUD_COLORS.warn : HUD_COLORS.good,
+        ? `RESCUE AMBULANCE · ${mult}x NORMAL STORE PRICES`
+        : "SAFE ZONE: MISSILES CAN'T SEE YOU WHILE PARKED HERE",
+      service ? C64.accent : C64.good,
     );
     set(
       shop.leave,
-      service ? 'Press 1–5 or click to buy · take off to dismiss' : 'Press 1–5 or click to buy · take off to leave',
-      HUD_COLORS.dim,
+      service ? 'PRESS 1-5 OR CLICK TO BUY · TAKE OFF TO DISMISS' : 'PRESS 1-5 OR CLICK TO BUY · TAKE OFF TO LEAVE',
+      C64.dim,
     );
     const names: Record<StoreItem, string> = {
-      missile: 'Missile    ',
-      flare: 'Flare burst',
-      repair: 'Hull repair',
-      gas: 'Gas, 1 gal ',
+      missile: 'MISSILE    ',
+      flare: 'FLARE BURST',
+      repair: 'HULL REPAIR',
+      gas: 'GAS, 1 GAL ',
     };
     STORE_ITEMS.forEach((item, i) => {
       const { price, have, cap } = storeItem(sim, t, item, mult);
@@ -698,11 +716,10 @@ export class Hud {
       const broke = item === 'gas' ? t.cents <= 0 : t.cents < Math.round(price * 100);
       const ok = !full && !broke;
       const status =
-        item === 'repair' ? `hull ${have}/${cap}` : item === 'gas' ? `tank ${have.toFixed(1)}/${cap} gal` : `you have ${have}`;
-      const why = full ? (item === 'repair' ? 'hull full' : item === 'gas' ? 'tank full' : 'full') : broke ? "can't afford" : status;
-      const line = `[${i + 1}]  ${names[item]}  $${price.toFixed(2).padStart(5)}   ${why}`;
-      set(shop.rows[item].text, line, ok ? HUD_COLORS.text : HUD_COLORS.dim);
-      shop.rows[item].setEnabled(ok);
+        item === 'repair' ? `HULL ${have}/${cap}` : item === 'gas' ? `TANK ${have.toFixed(1)}/${cap}G` : `HAVE ${have}/${cap}`;
+      const why = full ? (item === 'repair' ? 'HULL FULL' : item === 'gas' ? 'TANK FULL' : 'FULL') : broke ? "CAN'T AFFORD" : status;
+      const line = `[${i + 1}] ${names[item]} $${price.toFixed(2).padStart(5)}  ${why}`;
+      shop.rows[item].setRow(line, ok ? C64.text : C64.disabled, ok);
     });
     // [5] Fill up: the whole tank, or as much as you can afford.
     const gallonPrice = c.gallonPrice * mult;
@@ -710,15 +727,14 @@ export class Hud {
     const gallons = Math.min(missing, Math.max(0, t.cents / 100) / gallonPrice);
     const fillText =
       missing < 0.005
-        ? 'tank full'
+        ? 'TANK FULL'
         : gallons < 0.005
-          ? "can't afford"
-          : `${gallons.toFixed(1)} gal  $${(gallons * gallonPrice).toFixed(2)}${gallons < missing - 0.005 ? '  (all you can afford)' : ''}`;
-    set(shop.rows.fill.text, `[5]  Fill up      ${fillText}`, gallons >= 0.005 ? HUD_COLORS.text : HUD_COLORS.dim);
-    shop.rows.fill.setEnabled(gallons >= 0.005);
+          ? "CAN'T AFFORD"
+          : `${gallons.toFixed(1)}G  $${(gallons * gallonPrice).toFixed(2)}${gallons < missing - 0.005 ? ' (MAX)' : ''}`;
+    shop.rows.fill.setRow(`[5] FILL UP     ${fillText}`, gallons >= 0.005 ? C64.text : C64.disabled, gallons >= 0.005);
     const pct = Math.round((t.fuel / c.fuelMax) * 100);
-    const fuelColor = pct >= 100 ? HUD_COLORS.good : pct < 20 ? HUD_COLORS.bad : accent;
-    set(shop.fuel, pct >= 100 ? 'Tank full' : `Tank ${pct}% · gas isn't automatic: buy it here`, fuelColor);
+    const fuelColor = pct >= 100 ? C64.good : pct < 20 ? C64.dangerLight : C64.accent;
+    set(shop.fuel, pct >= 100 ? 'TANK FULL' : `TANK ${pct}% · GAS ISN'T AUTOMATIC: BUY IT HERE`, fuelColor);
   }
 
   update(t: Taxi, sim: SimState, dt: number): void {
@@ -846,7 +862,7 @@ export type ShopAction = StoreItem | 'fill';
 
 interface PanelRow {
   text: Text;
-  setEnabled(enabled: boolean): void;
+  setRow(label: string, color: number, enabled: boolean): void;
 }
 
 interface Shop {
@@ -869,12 +885,38 @@ interface TeleportPanel {
   pick: (index: number) => void;
 }
 
+const C64_BEZEL = 10;
+
+/** Draw a sharp 0px-radius Commodore 64 double-bezel panel with optional header divider. */
+function drawC64Frame(g: Graphics, x: number, y: number, w: number, h: number, bezelColor: number, headerH?: number): void {
+  g.clear()
+    .rect(x, y, w, h)
+    .fill({ color: bezelColor, alpha: 0.97 })
+    .rect(x + C64_BEZEL, y + C64_BEZEL, w - C64_BEZEL * 2, h - C64_BEZEL * 2)
+    .fill({ color: C64.screen, alpha: 0.97 });
+  if (headerH !== undefined) {
+    g.rect(x + C64_BEZEL, y + C64_BEZEL + headerH, w - C64_BEZEL * 2, 2).fill({ color: bezelColor });
+  }
+}
+
 function makePanelRow(parent: Container, width: number, ry: number, onClick: () => void): PanelRow {
   let enabled = true;
   let hovered = false;
+  let baseColor: number = C64.text;
   const hit = new Graphics();
+  const text = makeC64Text('', { fontSize: 11, fill: C64.text });
+  text.position.set(C64_BEZEL + 14, ry);
+
   const redraw = () => {
-    hit.clear().roundRect(8, ry - 4, width - 16, 26, 6).fill({ color: 0xffffff, alpha: enabled && hovered ? 0.09 : 0.001 });
+    const active = enabled && hovered;
+    hit.clear();
+    if (active) {
+      hit.rect(C64_BEZEL + 8, ry - 5, width - (C64_BEZEL + 8) * 2, 22).fill({ color: C64.accent });
+    } else {
+      hit.rect(C64_BEZEL + 8, ry - 5, width - (C64_BEZEL + 8) * 2, 22).fill({ color: 0xffffff, alpha: 0.001 });
+    }
+    const targetFill = active ? C64.screen : baseColor;
+    if (text.style.fill !== targetFill) text.style.fill = targetFill;
   };
   redraw();
   hit.eventMode = 'static';
@@ -890,99 +932,95 @@ function makePanelRow(parent: Container, width: number, ry: number, onClick: () 
   hit.on('pointertap', () => {
     if (enabled) onClick();
   });
-  const text = makeText('', { fontSize: 14, fill: HUD_COLORS.text });
-  text.position.set(18, ry);
   parent.addChild(hit, text);
   return {
     text,
-    setEnabled(next: boolean) {
-      if (enabled === next) return;
-      enabled = next;
-      hit.cursor = enabled ? 'pointer' : 'default';
-      redraw();
+    setRow(label: string, color: number, nextEnabled: boolean) {
+      if (text.text !== label) text.text = label;
+      const changed = baseColor !== color || enabled !== nextEnabled;
+      baseColor = color;
+      enabled = nextEnabled;
+      if (changed) {
+        hit.cursor = enabled ? 'pointer' : 'default';
+        redraw();
+      }
     },
   };
 }
 
-/** HUD-style teleport panel at the right of the playfield. Non-modal: the game keeps running. */
+/** C64-styled teleport panel at the right of the playfield. Non-modal: the game keeps running. */
 function buildTeleport(count: number, onPick: (index: number) => void): TeleportPanel {
-  const W = 640;
-  const H = 140 + count * 30;
+  const W = 740;
+  const H = 160 + count * 28;
   const root = new Container();
-  root.position.set(VIEW_W - W - 24, Math.max(80, Math.min(220, VIEW_H - H - 40))); // fits 7+ locales cleanly
-  const bg = new Graphics()
-    .roundRect(0, 0, W, H, 10)
-    .fill({ color: PALETTE.surface, alpha: 0.92 })
-    .stroke({ width: 2, color: TELEPORT_COLOR, alpha: 0.8 })
-    .rect(0, 40, W, 1)
-    .fill({ color: TELEPORT_COLOR, alpha: 0.4 });
-  const title = makeText('TELEPORT · TRAVEL TO', { fontSize: 16, fill: TELEPORT_COLOR, letterSpacing: 2 });
-  title.position.set(16, 12);
+  root.position.set(VIEW_W - W - 24, Math.max(72, Math.min(200, VIEW_H - H - 36)));
+  const bg = new Graphics();
+  drawC64Frame(bg, 0, 0, W, H, C64.bezel, 34);
+  const title = makeC64Text('TELEPORT · TRAVEL TO', { fontSize: 13, fill: C64.accent, letterSpacing: 1 });
+  title.position.set(C64_BEZEL + 14, C64_BEZEL + 10);
   root.addChild(bg, title);
-  const rows = Array.from({ length: count }, (_, i) => makePanelRow(root, W, 54 + i * 30, () => onPick(i)));
-  const y = 54 + count * 30 + 6;
-  const note = makeText('', { fontSize: 13, fill: HUD_COLORS.good });
-  note.position.set(18, y);
-  const safe = makeText("Safe zone: missiles can't see you while parked here", { fontSize: 12, fill: HUD_COLORS.good });
-  safe.position.set(18, y + 26);
-  const keys = makeText(`Press ${count > 1 ? `1–${count}` : '1'} or click to travel · take off to stay`, { fontSize: 12, fill: HUD_COLORS.dim });
-  keys.position.set(18, y + 48);
+  const rows = Array.from({ length: count }, (_, i) => makePanelRow(root, W, C64_BEZEL + 48 + i * 28, () => onPick(i)));
+  const y = C64_BEZEL + 48 + count * 28 + 10;
+  const note = makeC64Text('', { fontSize: 10, fill: C64.good });
+  note.position.set(C64_BEZEL + 14, y);
+  const safe = makeC64Text("SAFE ZONE: MISSILES CAN'T SEE YOU WHILE PARKED HERE", { fontSize: 10, fill: C64.good });
+  safe.position.set(C64_BEZEL + 14, y + 22);
+  const keys = makeC64Text(`PRESS ${count > 1 ? `1-${count}` : '1'} OR CLICK TO TRAVEL · TAKE OFF TO STAY`, {
+    fontSize: 10,
+    fill: C64.dim,
+  });
+  keys.position.set(C64_BEZEL + 14, y + 44);
   root.addChild(note, safe, keys);
   return { root, rows, note, pick: onPick };
 }
 
-const SHOP_W = 430;
-const SHOP_H = 286;
+const SHOP_W = 580;
+const SHOP_H = 304;
 
-function drawShopFrame(bg: Graphics, accent: number): void {
-  bg.clear()
-    .roundRect(0, 0, SHOP_W, SHOP_H, 10)
-    .fill({ color: PALETTE.surface, alpha: 0.92 })
-    .stroke({ width: 2, color: accent, alpha: 0.8 })
-    .rect(0, 40, SHOP_W, 1)
-    .fill({ color: accent, alpha: 0.4 });
+function drawShopFrame(bg: Graphics, bezel: number): void {
+  drawC64Frame(bg, 0, 0, SHOP_W, SHOP_H, bezel, 34);
 }
 
-/** HUD-style store panel at the right of the playfield. Non-modal: the game keeps running. */
+/** C64-styled store panel at the right of the playfield. Non-modal: the game keeps running. */
 function buildShop(onBuy: (item: ShopAction) => void): Shop {
   const W = SHOP_W;
   const x = VIEW_W - W - 24;
-  const y = 92;
+  const y = 84;
   const root = new Container();
   root.position.set(x, y);
   const bg = new Graphics();
-  drawShopFrame(bg, 0xff9f1c);
-  const title = makeText('CORNER STORE · OPEN 24/7', { fontSize: 16, fill: 0xff9f1c, letterSpacing: 2 });
-  title.position.set(16, 12);
+  drawShopFrame(bg, C64.bezel);
+  const title = makeC64Text('CORNER STORE · OPEN 24/7', { fontSize: 13, fill: C64.accent, letterSpacing: 1 });
+  title.position.set(C64_BEZEL + 14, C64_BEZEL + 10);
   root.addChild(bg, title);
   const rows = {
-    missile: makePanelRow(root, W, 54, () => onBuy('missile')),
-    flare: makePanelRow(root, W, 84, () => onBuy('flare')),
-    repair: makePanelRow(root, W, 114, () => onBuy('repair')),
-    gas: makePanelRow(root, W, 144, () => onBuy('gas')),
-    fill: makePanelRow(root, W, 174, () => onBuy('fill')),
+    missile: makePanelRow(root, W, C64_BEZEL + 48, () => onBuy('missile')),
+    flare: makePanelRow(root, W, C64_BEZEL + 76, () => onBuy('flare')),
+    repair: makePanelRow(root, W, C64_BEZEL + 104, () => onBuy('repair')),
+    gas: makePanelRow(root, W, C64_BEZEL + 132, () => onBuy('gas')),
+    fill: makePanelRow(root, W, C64_BEZEL + 160, () => onBuy('fill')),
   };
-  const fuel = makeText('', { fontSize: 13, fill: 0xff9f1c });
-  fuel.position.set(18, 210);
-  const safe = makeText("Safe zone: missiles can't see you while parked here", { fontSize: 12, fill: HUD_COLORS.good });
-  safe.position.set(18, 234);
-  const leave = makeText('Press 1–5 or click to buy · take off to leave', { fontSize: 12, fill: HUD_COLORS.dim });
-  leave.position.set(18, 256);
+  const fuel = makeC64Text('', { fontSize: 10, fill: C64.accent });
+  fuel.position.set(C64_BEZEL + 14, C64_BEZEL + 202);
+  const safe = makeC64Text("SAFE ZONE: MISSILES CAN'T SEE YOU WHILE PARKED HERE", { fontSize: 10, fill: C64.good });
+  safe.position.set(C64_BEZEL + 14, C64_BEZEL + 226);
+  const leave = makeC64Text('PRESS 1-5 OR CLICK TO BUY · TAKE OFF TO LEAVE', { fontSize: 10, fill: C64.dim });
+  leave.position.set(C64_BEZEL + 14, C64_BEZEL + 250);
   root.addChild(fuel, safe, leave);
   return { root, bg, title, rows, fuel, safe, leave, isService: false };
 }
 
-/** Render a horizontal row of centered clickable Pixi pill buttons and return total row width. */
+/** Render a horizontal row of centered clickable C64 reverse-video buttons and return total row width. */
 function renderActionRow(container: Container, actions: HudAction[]): number {
   container.removeChildren().forEach((c) => c.destroy({ children: true }));
-  const gap = 12;
-  const padX = 16;
+  const gap = 10;
+  const padX = 14;
   const h = 34;
   const built = actions.map((a) => {
     const btn = new Container();
-    const label = makeText(a.label, {
-      fontSize: 13,
-      fill: a.primary ? PALETTE.bg : a.danger ? 0xff9c9c : PALETTE.text,
+    const label = makeC64Text(a.label.toUpperCase(), {
+      fontSize: 11,
+      fill: a.primary ? C64.screen : C64.text,
     });
     label.anchor.set(0.5);
     const w = Math.ceil(label.width) + padX * 2;
@@ -990,17 +1028,20 @@ function renderActionRow(container: Container, actions: HudAction[]): number {
     const draw = (hover: boolean) => {
       bg.clear();
       if (a.primary) {
-        bg.roundRect(0, -h / 2, w, h, 7)
-          .fill(hover ? 0x6de0ff : PALETTE.info)
-          .stroke({ width: 1.5, color: hover ? 0x9ceaff : PALETTE.info });
+        bg.rect(0, -h / 2, w, h)
+          .fill(hover ? C64.text : C64.accent)
+          .stroke({ width: 2, color: hover ? C64.text : C64.accent });
+        label.style.fill = C64.screen;
       } else if (a.danger) {
-        bg.roundRect(0, -h / 2, w, h, 7)
-          .fill(hover ? 0x331624 : 0x1f101a)
-          .stroke({ width: 1.5, color: hover ? PALETTE.bad : 0x5a283c });
+        bg.rect(0, -h / 2, w, h)
+          .fill(hover ? C64.dangerLight : C64.danger)
+          .stroke({ width: 2, color: hover ? C64.dangerLight : C64.dangerLight });
+        label.style.fill = hover ? C64.screen : C64.text;
       } else {
-        bg.roundRect(0, -h / 2, w, h, 7)
-          .fill(hover ? 0x242e5c : PALETTE.surfaceRaised)
-          .stroke({ width: 1.5, color: hover ? PALETTE.info : PALETTE.border });
+        bg.rect(0, -h / 2, w, h)
+          .fill(hover ? C64.bezel : C64.screenAlt)
+          .stroke({ width: 2, color: C64.bezel });
+        label.style.fill = hover ? C64.screen : C64.text;
       }
     };
     draw(false);

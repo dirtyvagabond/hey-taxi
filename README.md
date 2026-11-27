@@ -102,6 +102,10 @@ docs/        Detailed gameplay guide and architecture notes.
 - **[Gameplay Guide](docs/gameplay.md)** — Locales, flight & landing gear rules, fares and tips, combat, co-pilots, stores, teleports, rival population, accounts/servers, and Game review.
 - **[Architecture](docs/architecture.md)** — Monorepo design, simulation contract, SQLite persistence, WebSocket protocol, level generation, and live tuning.
 
+## Credits & Third-Party Notices
+
+- **PetMe64 font** (`packages/client/public/fonts/PetMe64.ttf`) by **Kreative Korporation / Kreative Software**, used verbatim under the [Kreative Software Relay Fonts Free Use License v1.2f](packages/client/public/fonts/FreeLicense.txt).
+
 ## License
 
 [MIT](LICENSE)
