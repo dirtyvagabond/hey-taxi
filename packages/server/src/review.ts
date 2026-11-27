@@ -134,6 +134,7 @@ const CRASH: Record<string, string> = {
   badFooting: 'missed the ledge',
   missile: 'hit by a missile',
   outOfFuel: 'out of fuel',
+  selfDestruct: 'self-destructed',
 };
 
 /**

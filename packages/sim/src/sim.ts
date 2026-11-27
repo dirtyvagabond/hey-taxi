@@ -21,9 +21,10 @@ export type LandingRating = 'smooth' | 'ok' | 'rough';
  * hardLanding – gear down, but too fast vertically or horizontally
  * badFooting  – skids not fully supported (landed on an edge)
  * missile     – hit by another taxi's missile
- * outOfFuel   – the tank ran dry: the taxi explodes on the spot
+ * outOfFuel    – the tank ran dry: the taxi explodes on the spot
+ * selfDestruct – player triggered manual self-destruct
  */
-export type CrashReason = 'body' | 'gearUp' | 'hardLanding' | 'badFooting' | 'missile' | 'outOfFuel';
+export type CrashReason = 'body' | 'gearUp' | 'hardLanding' | 'badFooting' | 'missile' | 'outOfFuel' | 'selfDestruct';
 
 export interface Taxi {
   id: string;

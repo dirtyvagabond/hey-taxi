@@ -30,22 +30,22 @@ const WARN = 0xff3b3b;
 /** How far the steel is tinted toward the body color. */
 const TINT = 0.3;
 
-/** The hull, nose at +x: hood line up to the apex, slope down to the tail, arches cut below. */
+/** The hull, nose at +x: hood line up to the apex (-8.6), slope down to the tail, floor at +9.0. */
 const HULL: readonly number[] = [
-  24, -0.5, -3, -7.5, -24, -3.5, -24, 6, -23, 7.5,
-  -20, 7.5, -18, 3.8, -10, 3.8, -8, 7.5,
-  8, 7.5, 10, 3.8, 18, 3.8, 20, 7.5,
-  23, 7.5, 24, 5,
+  24, -0.4, -3, -8.6, -24, -4.0, -24, 7.2, -23, 9.0,
+  -20, 9.0, -18, 4.6, -10, 4.6, -8, 9.0,
+  8, 9.0, 10, 4.6, 18, 4.6, 20, 9.0,
+  23, 9.0, 24, 6.2,
 ];
-/** Below the beltline crease (y 1.6): the slightly darker lower flank. */
+/** Below the beltline crease (y 2.0): the slightly darker lower flank. */
 const LOWER: readonly number[] = [
-  24, 1.6, 24, 5, 23, 7.5, 20, 7.5, 18, 3.8, 10, 3.8, 8, 7.5,
-  -8, 7.5, -10, 3.8, -18, 3.8, -20, 7.5, -23, 7.5, -24, 6, -24, 1.6,
+  24, 2.0, 24, 6.2, 23, 9.0, 20, 9.0, 18, 4.6, 10, 4.6, 8, 9.0,
+  -8, 9.0, -10, 4.6, -18, 4.6, -20, 9.0, -23, 9.0, -24, 7.2, -24, 2.0,
 ];
 /** The armored glass: one long sharp-cornered pane under the roof lines. */
-const PANE: readonly number[] = [-10.5, -1.8, -9.5, -5.2, -3, -6.3, 12, -2.5, 12.4, -1.8];
+const PANE: readonly number[] = [-11.0, -1.6, -9.8, -5.9, -3, -7.2, 12.6, -2.5, 13.0, -1.6];
 /** The TAXI lamp on the apex (its base sinks into the roof). */
-const LAMP: readonly number[] = [-6.5, -6.6, -5.6, -9.8, -0.4, -9.8, 0.5, -6.4];
+const LAMP: readonly number[] = [-6.5, -7.4, -5.6, -10.0, -0.4, -10.0, 0.5, -7.2];
 /** Wheel pod centers (x), one per arch. */
 const PODS = [-14, 14] as const;
 /** Where sparks fly from while critical, as [x, y]. */
@@ -80,30 +80,30 @@ function drawBody(g: Graphics, steel: number): void {
   }
   g.moveTo(-23, 3.2).lineTo(23, 3.2).stroke({ width: 0.3, color: 0x000000, alpha: 0.1 });
   // The beltline crease: a lit edge over a shadowed one.
-  g.moveTo(-24, 1.35).lineTo(24, 1.35).stroke({ width: 0.5, color: shine, alpha: 0.9 });
-  g.moveTo(-24, 1.85).lineTo(24, 1.85).stroke({ width: 0.4, color: seam, alpha: 0.5 });
+  g.moveTo(-24, 1.75).lineTo(24, 1.75).stroke({ width: 0.5, color: shine, alpha: 0.9 });
+  g.moveTo(-24, 2.25).lineTo(24, 2.25).stroke({ width: 0.4, color: seam, alpha: 0.5 });
   // Roof edges: the hood line catches the light; the rear slope sits in shade.
-  g.moveTo(24, -0.5).lineTo(-3, -7.5).stroke({ width: 0.7, color: shine, cap: 'round' });
-  g.moveTo(-3, -7.5).lineTo(-24, -3.5).stroke({ width: 0.6, color: seam, alpha: 0.6, cap: 'round' });
+  g.moveTo(24, -0.4).lineTo(-3, -8.6).stroke({ width: 0.7, color: shine, cap: 'round' });
+  g.moveTo(-3, -8.6).lineTo(-24, -4.0).stroke({ width: 0.6, color: seam, alpha: 0.6, cap: 'round' });
   // Door seams.
-  for (const [x, y1] of [[-10.8, 3.8], [1, 7.5], [9.6, 4.6]] as const) {
-    g.moveTo(x, -1.8).lineTo(x, y1).stroke({ width: 0.35, color: seam, alpha: 0.55 });
+  for (const [x, y1] of [[-10.8, 4.6], [1, 9.0], [9.6, 5.4]] as const) {
+    g.moveTo(x, -1.6).lineTo(x, y1).stroke({ width: 0.35, color: seam, alpha: 0.55 });
   }
   // Arch cladding, rocker, and bumpers.
   for (const ax of PODS) {
-    g.poly([ax - 6.3, 7.5, ax - 4.2, 3.3, ax + 4.2, 3.3, ax + 6.3, 7.5], false).stroke({
+    g.poly([ax - 6.3, 9.0, ax - 4.2, 4.1, ax + 4.2, 4.1, ax + 6.3, 9.0], false).stroke({
       width: 1.3,
       color: CLADDING,
       join: 'miter',
     });
   }
-  g.rect(-8, 6.2, 16, 1.3).fill(CLADDING);
-  g.rect(20, 6.2, 3.2, 1.3).fill(CLADDING);
-  g.rect(-23, 6.2, 3, 1.3).fill(CLADDING);
+  g.rect(-8, 7.6, 16, 1.4).fill(CLADDING);
+  g.rect(20, 7.6, 3.2, 1.4).fill(CLADDING);
+  g.rect(-23, 7.6, 3, 1.4).fill(CLADDING);
   // Armored glass, split at the pillar, with one sharp glint.
   g.poly([...PANE]).fill(GLASS);
-  g.moveTo(1, -6).lineTo(1, -1.8).stroke({ width: 1, color: steel });
-  g.moveTo(4, -3.6).lineTo(8.5, -2.6).stroke({ width: 0.5, color: GLASS_SHINE, cap: 'round' });
+  g.moveTo(1, -6.9).lineTo(1, -1.6).stroke({ width: 1, color: steel });
+  g.moveTo(4, -3.9).lineTo(8.8, -2.7).stroke({ width: 0.55, color: GLASS_SHINE, cap: 'round' });
   // The TAXI lamp: a dark faceted housing around a lit panel.
   g.poly([...LAMP]).fill(mix(steel, 0x000000, 0.35));
 }
@@ -144,12 +144,12 @@ class CyberArt implements SkinArt {
     this.steel = mix(STEEL, color, color === CYBER_GOLD ? 0 : TINT);
     const lit = litColor(color);
     drawBody(this.paint, this.steel);
-    lightBar(this.bar, 23.6, -0.8, 18.4, -2.15, lit);
-    this.bar.rect(-5, -9.1, 4, 1.5).fill(lit);
-    lightBar(this.strobe, 23.6, -0.8, 18.4, -2.15, WARN);
-    this.strobe.rect(-5, -9.1, 4, 1.5).fill(WARN);
+    lightBar(this.bar, 23.6, -0.7, 18.4, -2.2, lit);
+    this.bar.rect(-5, -9.5, 4, 1.5).fill(lit);
+    lightBar(this.strobe, 23.6, -0.7, 18.4, -2.2, WARN);
+    this.strobe.rect(-5, -9.5, 4, 1.5).fill(WARN);
     this.strobe.visible = false;
-    lightBar(this.tail, -23.6, -3.4, -19, -4.3, TAIL);
+    lightBar(this.tail, -23.6, -3.8, -19, -4.8, TAIL);
     this.warn.poly([...HULL]).stroke({ width: 4, color: WARN, alpha: 0.9, join: 'miter' });
     this.warn.visible = false;
     this.body.addChild(this.warn, this.paint, this.bar, this.strobe, this.tail);
@@ -164,10 +164,11 @@ class CyberArt implements SkinArt {
     const g = this.gear;
     g.clear();
     const e = p * p * (3 - 2 * p);
+    const locked = p >= 1;
     const r = 3.4;
-    const top = 3.8;
+    const top = 4.6;
     const bottom = TAXI.halfH + TAXI.gearLength; // 24
-    const restY = 6.4; // tucked: bottom at 9.8, inside the hitbox
+    const restY = 6.6; // tucked: bottom at 10.0, flush with the hitbox
     const downY = bottom - 1.4 - r; // wheel resting on the skid plate
     const y = restY + (downY - restY) * e;
     const cap = mix(this.steel, 0xffffff, 0.15);
@@ -181,6 +182,7 @@ class CyberArt implements SkinArt {
         g.rect(ax - half, y + r, half * 2, 0.4 * e).fill({ color: this.steel, alpha: 0.8 });
       }
       hexWheel(g, ax, y, r, cap);
+      if (locked) g.circle(ax, y - r - 1.9, 1.15).fill(0x6dff8a);
     }
   }
 
@@ -257,9 +259,9 @@ class CyberArt implements SkinArt {
     g.clear();
     if (kind === null) return;
     const look = lookFor(kind);
-    g.roundRect(-6.4, -2.9, 5.4, 1.4, 0.6).fill(look.shirt);
-    g.circle(-3.7, -4.2, 1.5).fill(look.skin);
-    if (look.hat !== null) g.rect(-5.4, -6, 3.4, 1.1).fill(look.hat);
+    g.roundRect(-6.8, -3.2, 6.0, 1.7, 0.7).fill(look.shirt);
+    g.circle(-3.8, -4.7, 1.75).fill(look.skin);
+    if (look.hat !== null) g.rect(-5.7, -6.8, 3.8, 1.2).fill(look.hat);
   }
 }
 
@@ -267,5 +269,6 @@ export const CYBER_TAXI: SkinDef = {
   id: 'cyberTaxi',
   name: 'CYBER TAXI',
   playerColor: CYBER_GOLD,
+  thrusters: { topY: -8.6, bottomY: 9.0 },
   create: (color) => new CyberArt(color),
 };

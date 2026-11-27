@@ -105,16 +105,16 @@ export class Hud {
 
   constructor() {
     const bg = new Graphics()
-      .rect(0, 0, VIEW_W, HUD_H)
+      .rect(-2000, 0, VIEW_W + 4000, HUD_H)
       .fill(PALETTE.barBg)
-      .rect(0, HUD_H - 2, VIEW_W, 2)
+      .rect(-2000, HUD_H - 2, VIEW_W + 4000, 2)
       .fill(PALETTE.borderSubtle);
     for (const x of [224, 432, 848]) bg.rect(x, 10, 1, HUD_H - 20).fill({ color: PALETTE.borderSubtle });
     this.bar.addChildAt(bg, 0);
     this.bar.addChild(this.fuelBar, this.ammo, this.hullPips);
 
     this.controlsHint = this.overlayText(
-      '←↑→↓/WASD thrust · SPACE gear · F missile · C flares · R service · H co-pilot · TAB map · P pause · M mute',
+      '←↑→↓/WASD thrust · SPACE gear · F missile · C flares · R service · H co-pilot · Z zoom · TAB map · P pause · M mute',
       12,
       VIEW_W / 2,
       VIEW_H - 20,

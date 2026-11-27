@@ -1,6 +1,6 @@
 import { Container, Graphics, type Text } from 'pixi.js';
 import { archetypeColor, Input, personalityArchetype, shortTaxiName, TAXI, type Taxi } from '@hey-taxi/sim';
-import { skinDef, type HullStage, type SkinArt, type SkinId } from './skins';
+import { skinDef, type HullStage, type SkinArt, type SkinId, type SkinThrusters } from './skins';
 import { makeText } from './text';
 
 const { halfW: HW, halfH: HH } = TAXI;
@@ -28,6 +28,8 @@ export class TaxiView {
   /** The skin's layers, mirrored when the taxi faces left. */
   private art = new Container();
   private skin: SkinArt;
+  private thrusters: SkinThrusters;
+  private youPing: Text | null = null;
   private flames = new Graphics();
   private hull = new Graphics();
   private fuel = new Graphics();
@@ -41,38 +43,55 @@ export class TaxiView {
   constructor(color = 0xffc83d, npc = false, skin: SkinId | string = 'original') {
     const def = skinDef(skin);
     this.skin = def.create(color);
+    this.thrusters = def.thrusters ?? {};
     this.tagged = npc;
     this.art.addChild(this.skin.gear, this.skin.body, this.skin.scars, this.skin.rider);
     this.root.addChild(this.flames, this.art, this.hull, this.fuel);
     if (npc) {
-      // Cash, above the hull pips and fuel gauge.
-      this.money = makeText('', { fontSize: 10, fill: 0xe6ebff });
-      this.money.anchor.set(0.5, 1);
-      this.money.position.set(0, -HH - 19);
-      this.money.alpha = 0.85;
-      // Name and personality archetype side-by-side above cash: "Alva T. [hothead]".
-      this.nameText = makeText('', { fontSize: 9, fill: 0xe6ebff, fontWeight: 'bold' });
+      const labelStroke = { color: 0x05070f, width: 2 };
+      // Compact single-row nameplate above hull pips: "Alva T. [hothead] · $142".
+      this.nameText = makeText('', { fontSize: 10, fill: 0xe6ebff, fontWeight: 'bold', stroke: labelStroke });
       this.nameText.anchor.set(0, 1);
-      this.nameText.position.set(0, -HH - 30);
-      this.nameText.alpha = 0.92;
-      this.badge = makeText('', { fontSize: 9, fill: 0xb0badb, fontWeight: 'bold' });
+      this.nameText.position.set(0, -HH - 17);
+      this.nameText.alpha = 0.94;
+      this.badge = makeText('', { fontSize: 10, fill: 0xb0badb, fontWeight: 'bold', stroke: labelStroke });
       this.badge.anchor.set(0, 1);
-      this.badge.position.set(0, -HH - 30);
-      this.badge.alpha = 0.92;
+      this.badge.position.set(0, -HH - 17);
+      this.badge.alpha = 0.94;
+      this.money = makeText('', { fontSize: 10, fill: 0xb8e994, fontWeight: 'bold', stroke: labelStroke });
+      this.money.anchor.set(0, 1);
+      this.money.position.set(0, -HH - 17);
+      this.money.alpha = 0.92;
       // Dynamic status tag (Vendetta / Fleeing) above the nameplate.
-      this.statusTag = makeText('', { fontSize: 9, fill: 0xff5c5c, fontWeight: 'bold' });
+      this.statusTag = makeText('', { fontSize: 10, fill: 0xff5c5c, fontWeight: 'bold', stroke: labelStroke });
       this.statusTag.anchor.set(0.5, 1);
-      this.statusTag.position.set(0, -HH - 41);
+      this.statusTag.position.set(0, -HH - 30);
       this.statusTag.visible = false;
-      this.root.addChild(this.money, this.nameText, this.badge, this.statusTag);
+      this.root.addChild(this.nameText, this.badge, this.money, this.statusTag);
     } else {
       // Player nameplate: shown on other human players and while watching/spectating.
-      this.nameText = makeText('', { fontSize: 9, fill: 0xe6ebff, fontWeight: 'bold' });
+      const labelStroke = { color: 0x05070f, width: 2 };
+      this.nameText = makeText('', {
+        fontSize: 10,
+        fill: 0xe6ebff,
+        fontWeight: 'bold',
+        stroke: labelStroke,
+      });
       this.nameText.anchor.set(0.5, 1);
       this.nameText.position.set(0, -HH - 8);
-      this.nameText.alpha = 0.92;
+      this.nameText.alpha = 0.94;
       this.nameText.visible = false;
-      this.root.addChild(this.nameText);
+      // Brief transition ping ("▼ YOU") shown on spawn, teleport, or returning from map.
+      this.youPing = makeText('▼ YOU', {
+        fontSize: 11,
+        fill: 0xffe066,
+        fontWeight: 'bold',
+        stroke: labelStroke,
+      });
+      this.youPing.anchor.set(0.5, 1);
+      this.youPing.position.set(0, -HH - 16);
+      this.youPing.visible = false;
+      this.root.addChild(this.nameText, this.youPing);
     }
   }
 
@@ -95,6 +114,8 @@ export class TaxiView {
     localId?: string,
     nameOf?: (id: string) => string,
     showSelfName = false,
+    distFromPlayer?: number,
+    youPingAlpha = 0,
   ): void {
     this.root.visible = t.status === 'flying' || t.status === 'landed';
     this.root.position.set(x, y);
@@ -102,18 +123,31 @@ export class TaxiView {
     this.art.scale.x = t.facing === -1 ? -1 : 1;
     this.skin.setGear(t.gear);
     const stage = hullStage(t.hp, maxHp);
-    this.drawFlames(t.thrust, time, stage === 4);
+    this.drawFlames(t.thrust, time, t.facing === -1 ? -1 : 1, stage === 4);
     this.skin.setDamage(stage, time);
     this.drawHull(t.hp, maxHp, time);
+    const isLocal = !!localId && t.id === localId;
     if (this.tagged) {
+      // Gently dim distant rival overhead labels so nearby traffic and your cab stay the focal point.
+      const dist = distFromPlayer ?? 0;
+      const labelFade =
+        dist <= 260 ? 1 : dist >= 580 ? 0.52 : 1 - 0.48 * ((dist - 260) / 320);
+      this.hull.alpha = labelFade;
+      this.fuel.alpha = labelFade;
+      this.nameText.alpha = 0.94 * labelFade;
+      if (this.badge) this.badge.alpha = 0.94 * labelFade;
+      if (this.money) this.money.alpha = 0.92 * labelFade;
       this.drawFuel(t.fuel / fuelMax, time);
-      const cash = `$${Math.floor(t.cents / 100)}`;
-      if (this.money && this.money.text !== cash) this.money.text = cash;
+      const cash = `· $${Math.floor(t.cents / 100)}`;
+      let relayout = false;
+      if (this.money && this.money.text !== cash) {
+        this.money.text = cash;
+        relayout = true;
+      }
       if (this.badge) {
         const displayName = shortTaxiName(nameOf?.(t.id) ?? t.id);
         const arch = personalityArchetype(t.personality);
         const tag = `[${arch.toLowerCase()}]`;
-        let relayout = false;
         if (this.nameText.text !== displayName) {
           this.nameText.text = displayName;
           relayout = true;
@@ -124,10 +158,19 @@ export class TaxiView {
           relayout = true;
         }
         if (relayout) {
-          const gap = displayName ? 3 : 0;
-          const totalW = this.nameText.width + gap + this.badge.width;
-          this.nameText.position.x = -totalW / 2;
-          this.badge.position.x = -totalW / 2 + this.nameText.width + gap;
+          const gap = 3;
+          const moneyW = this.money ? this.money.width : 0;
+          const totalW =
+            this.nameText.width +
+            (displayName ? gap : 0) +
+            this.badge.width +
+            (this.money ? gap + moneyW : 0);
+          let xCur = -totalW / 2;
+          this.nameText.position.x = xCur;
+          if (displayName) xCur += this.nameText.width + gap;
+          this.badge.position.x = xCur;
+          xCur += this.badge.width + gap;
+          if (this.money) this.money.position.x = xCur;
         }
       }
       if (this.statusTag) {
@@ -159,6 +202,15 @@ export class TaxiView {
       } else {
         this.nameText.visible = false;
       }
+      if (this.youPing) {
+        const showPing = isLocal && !showSelfName && youPingAlpha > 0.01;
+        this.youPing.visible = showPing;
+        if (showPing) {
+          this.youPing.alpha = youPingAlpha;
+          const baseY = stage > 0 ? -HH - 22 : -HH - 14;
+          this.youPing.position.y = baseY + Math.sin(time * 7) * 2.5;
+        }
+      }
     }
   }
 
@@ -184,7 +236,7 @@ export class TaxiView {
     g.clear();
     const f = Math.max(0, Math.min(1, frac));
     const w = 34;
-    const y = -HH - 9;
+    const y = -HH - 7;
     const color = f < 0.2 ? 0xff5c5c : f < 0.4 ? 0xffe066 : 0x6dff8a;
     const alpha = f < 0.2 ? 0.45 + 0.55 * Math.abs(Math.sin(time * 7)) : 0.9;
     g.rect(-w / 2 - 1, y - 1, w + 2, 5).fill({ color: 0x05070f, alpha: 0.7 });
@@ -199,13 +251,13 @@ export class TaxiView {
     // Fast blink on the last point.
     const alpha = hp === 1 ? 0.35 + 0.65 * (Math.sin(time * 14) > 0 ? 1 : 0.2) : 1;
     // Other taxis always show their hull (above the fuel gauge); yours from 2 points down.
-    if (this.tagged) return this.drawPips(hp, maxHp, -HH - 17, color, alpha);
+    if (this.tagged) return this.drawPips(hp, maxHp, -HH - 14, color, alpha);
     if (hullStage(hp, maxHp) === 0) return;
     this.drawPips(hp, maxHp, -HH - 10, color, alpha);
   }
 
   /** Thruster flames; a dying engine (`sputter`) cuts out in short stutters. */
-  private drawFlames(thrust: number, time: number, sputter = false): void {
+  private drawFlames(thrust: number, time: number, facing: 1 | -1, sputter = false): void {
     const f = this.flames;
     f.clear();
     if (!thrust) return;
@@ -227,12 +279,18 @@ export class TaxiView {
         y + dy * len * 0.55,
       ]).fill(0xfff1a8);
     };
+    const leftX = this.thrusters.leftX ?? -HW;
+    const rightX = this.thrusters.rightX ?? HW;
+    const topY = this.thrusters.topY ?? -HH;
+    const bottomY = this.thrusters.bottomY ?? HH;
+    const xRightNozzle = facing === 1 ? rightX : -leftX;
+    const xLeftNozzle = facing === 1 ? leftX : -rightX;
     if (thrust & Input.UP) {
-      flame(-6, HH, 0, 1, 18 * flick(0), 4);
-      flame(6, HH, 0, 1, 18 * flick(1), 4);
+      flame(-6, bottomY, 0, 1, 18 * flick(0), 4);
+      flame(6, bottomY, 0, 1, 18 * flick(1), 4);
     }
-    if (thrust & Input.DOWN) flame(0, -HH, 0, -1, 11 * flick(2), 3);
-    if (thrust & Input.LEFT) flame(HW, 0, 1, 0, 13 * flick(3), 3.5);
-    if (thrust & Input.RIGHT) flame(-HW, 0, -1, 0, 13 * flick(4), 3.5);
+    if (thrust & Input.DOWN) flame(0, topY, 0, -1, 11 * flick(2), 3);
+    if (thrust & Input.LEFT) flame(xRightNozzle, 0, 1, 0, 13 * flick(3), 3.5);
+    if (thrust & Input.RIGHT) flame(xLeftNozzle, 0, -1, 0, 13 * flick(4), 3.5);
   }
 }

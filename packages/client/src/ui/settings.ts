@@ -3,6 +3,7 @@
  * Separates everyday player preferences (Volume, Mute, Passenger voice, Screen shake,
  * Flight controls bar) from the developer lil-gui Tuning panel.
  */
+import { CAMERA_ZOOM_PRESETS, cameraZoomTag } from '../camera';
 import type { DebugOptions } from '../debug';
 import { el, ensureTheme } from './theme';
 
@@ -129,6 +130,15 @@ const STYLE = `
   border-color: var(--tx-info);
   color: var(--tx-info);
   font-weight: 700;
+}
+.tx-seg {
+  display: inline-flex;
+  gap: 4px;
+}
+.tx-seg .tx-btn {
+  padding: 5px 8px;
+  font-size: 11px;
+  min-width: 0;
 }
 .tx-settings-div {
   border-top: 1px solid var(--tx-border-subtle);
@@ -265,6 +275,22 @@ export class SettingsUI {
       this.renderModal();
     });
 
+    const zoomBtns = CAMERA_ZOOM_PRESETS.map((p) => {
+      const active = o.cameraZoom === p.id;
+      const b = el(
+        active ? 'button.tx-btn.tx-toggle.on' : 'button.tx-btn',
+        { type: 'button', title: `${p.label} (${cameraZoomTag(p)})` },
+        p.label,
+      );
+      b.addEventListener('click', () => {
+        if (o.cameraZoom === p.id) return;
+        o.cameraZoom = p.id;
+        this.hooks.onOptionChanged();
+        this.renderModal();
+      });
+      return b;
+    });
+
     const tuningOn = this.hooks.isTuningVisible();
     const tuningBtn = el(
       tuningOn ? 'button.tx-btn.tx-toggle.on' : 'button.tx-btn',
@@ -297,6 +323,12 @@ export class SettingsUI {
         {},
         el('div.tx-settings-label', {}, el('span', {}, 'Passenger Voice'), el('small', {}, 'Retro C64 synthesized passenger speech')),
         voiceToggle,
+      ),
+      el(
+        'div.tx-settings-row',
+        {},
+        el('div.tx-settings-label', {}, el('span', {}, 'Camera Zoom'), el('small', {}, 'Playfield scale · Shortcut: Z')),
+        el('div.tx-seg', {}, ...zoomBtns),
       ),
       el(
         'div.tx-settings-row',

@@ -1,6 +1,6 @@
 import { Container, Graphics } from 'pixi.js';
 import type { Level, LevelTheme } from '@hey-taxi/sim';
-import { VIEW_H, VIEW_W } from '../camera';
+import { MAX_CAMERA_ZOOM, VIEW_H, VIEW_W } from '../camera';
 import { makeText } from './text';
 
 export interface ThemePalette {
@@ -120,7 +120,7 @@ export class WorldView {
   constructor(level: Level) {
     const pal = THEME_PALETTES[level.theme] ?? COLORS;
     const rand = seeded(level.name.length * 7919 + level.cols * 31 + level.rows);
-    const sky = new Graphics().rect(0, 0, VIEW_W, VIEW_H).fill(pal.sky);
+    const sky = new Graphics().rect(-2000, 0, VIEW_W + 4000, VIEW_H).fill(pal.sky);
     this.stars = drawStars(level, rand);
     this.skyline = drawSkyline(level, rand, pal);
     this.background.addChild(sky, this.stars, this.skyline);
@@ -140,9 +140,12 @@ export class WorldView {
 }
 
 function layerSize(level: Level, factor: number): [number, number] {
+  const baseW = Math.max(VIEW_W, 2400);
+  const minViewW = VIEW_W / MAX_CAMERA_ZOOM;
+  const minViewH = VIEW_H / MAX_CAMERA_ZOOM;
   return [
-    VIEW_W + Math.max(0, level.width - VIEW_W) * factor,
-    VIEW_H + Math.max(0, level.height - VIEW_H) * factor,
+    baseW + Math.max(0, level.width - minViewW) * factor,
+    VIEW_H + Math.max(0, level.height - minViewH) * factor,
   ];
 }
 

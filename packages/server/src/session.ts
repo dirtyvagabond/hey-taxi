@@ -6,6 +6,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import {
+  crash,
   DEFAULT_CONFIG,
   isActive,
   levelById,
@@ -156,6 +157,7 @@ export class GameSession {
 
   private held = 0;
   private latched = 0;
+  private pendingSelfDestruct = false;
   private readonly newSeed: () => number;
 
   constructor(opts: SessionOptions) {
@@ -359,6 +361,9 @@ export class GameSession {
       case 'respawn':
         if (this.mode === 'destroyed') this.respawn(taxiSkin(skin), taxiColor(color));
         break;
+      case 'selfDestruct':
+        if (this.mode === 'playing' && !this.paused) this.pendingSelfDestruct = true;
+        break;
     }
   }
 
@@ -417,6 +422,15 @@ export class GameSession {
     const viewLocale = this.viewLocaleId;
     const me = this.playerId;
     const results = this.world.step(me ? { [me]: input } : {});
+    if (this.pendingSelfDestruct) {
+      this.pendingSelfDestruct = false;
+      if (me && this.mode === 'playing' && !ps.dying) {
+        const loc = this.world.localeOf(me);
+        const t = loc.sim.taxis.find((x) => x.id === me);
+        const entry = results.find((r) => r.locale.id === loc.id);
+        if (t && isActive(t) && entry) crash(loc.sim, t, 'selfDestruct', entry.events);
+      }
+    }
     if (this.playerDamageAlertTicks > 0) this.playerDamageAlertTicks--;
     let playerDestroyed: { cause: string; byTaxiId: string | null } | null = null;
     let shown: SimEvent[] = [];

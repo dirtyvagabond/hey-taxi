@@ -100,6 +100,7 @@ class SoftArt implements SkinArt {
     g.clear();
     if (p <= 0) return;
     const e = p * p * (3 - 2 * p);
+    const locked = p >= 1;
     const hy = 6;
     const bottom = TAXI.halfH + TAXI.gearLength; // 24
     for (const s of [-1, 1]) {
@@ -116,6 +117,7 @@ class SoftArt implements SkinArt {
       g.moveTo(hx, hy).lineTo(fx, fy).stroke({ width: 2.6, color: this.strut, cap: 'round' });
       g.roundRect(fx - 6, fy, 12, 3, 1.5).fill(this.pad);
       g.roundRect(fx - 6, fy + 1.8, 12, 1.2, 0.6).fill({ color: 0x000000, alpha: 0.18 });
+      if (locked) g.circle(fx, fy - 2.2, 1.15).fill(0x6dff8a);
     }
   }
 

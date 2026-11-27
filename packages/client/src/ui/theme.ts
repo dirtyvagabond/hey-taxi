@@ -47,6 +47,7 @@ export const CRASH_CAUSES: Record<CrashReason, string> = {
   badFooting: 'Missed the ledge',
   missile: 'Hit by a missile',
   outOfFuel: 'Out of fuel',
+  selfDestruct: 'Self-destructed',
 };
 
 /** Sentence-case crash cause (for Review tables and summaries). */

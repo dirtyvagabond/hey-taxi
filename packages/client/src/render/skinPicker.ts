@@ -65,6 +65,8 @@ export class SkinPicker {
   private customRing: Graphics;
   private customFill: Graphics;
   private colorLabel: Text;
+  private dots = new Graphics();
+  private wheelHandler: ((e: WheelEvent) => void) | null = null;
   private colorInput: HTMLInputElement | null = null;
   private done = false;
 
@@ -132,8 +134,12 @@ export class SkinPicker {
       this.root.addChild(arrow);
     }
 
+    // Pagination dots below the carousel so players can see how many skins exist.
+    this.dots.position.set(VIEW_W / 2, top + CARD_H + 14);
+    this.root.addChild(this.dots);
+
     // Paint color row below the cards.
-    const rowY = top + CARD_H + 54;
+    const rowY = top + CARD_H + 62;
     this.colorLabel = makeText('', { fontSize: 14, fill: HUD_COLORS.text, letterSpacing: 2 });
     this.colorLabel.anchor.set(0.5);
     this.colorLabel.position.set(VIEW_W / 2, rowY - 28);
@@ -188,6 +194,13 @@ export class SkinPicker {
     this.strip.x = this.stripTarget();
     this.fadeCards();
     this.refreshSwatches();
+
+    this.wheelHandler = (e: WheelEvent) => {
+      const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+      if (Math.abs(delta) < 4) return;
+      this.move(delta > 0 ? 1 : -1);
+    };
+    window.addEventListener('wheel', this.wheelHandler, { passive: true });
   }
 
   /** Strip x that puts the chosen card at the center of the view. */
@@ -238,6 +251,10 @@ export class SkinPicker {
   close(): void {
     if (this.done) return;
     this.done = true;
+    if (this.wheelHandler) {
+      window.removeEventListener('wheel', this.wheelHandler);
+      this.wheelHandler = null;
+    }
     this.colorInput?.remove();
     this.colorInput = null;
     this.root.destroy({ children: true });
@@ -335,5 +352,12 @@ export class SkinPicker {
       c.name.style.fill = on ? 0xffc83d : HUD_COLORS.text;
       c.name.text = on ? `▶ ${SKINS[k]!.name.toUpperCase()} ◀` : SKINS[k]!.name.toUpperCase();
     });
+    this.dots.clear();
+    const dotGap = 14;
+    const start = -((this.cards.length - 1) * dotGap) / 2;
+    for (let k = 0; k < this.cards.length; k++) {
+      const on = k === i;
+      this.dots.circle(start + k * dotGap, 0, on ? 4 : 2.5).fill(on ? 0xffc83d : 0x3b4980);
+    }
   }
 }

@@ -1,5 +1,5 @@
 import { Container, Graphics, type Text } from 'pixi.js';
-import { PASSENGER, type Passenger } from '@hey-taxi/sim';
+import type { Passenger } from '@hey-taxi/sim';
 import { makeText } from './text';
 
 /** Per-kind look. Placeholder people: simple shapes, original. */
@@ -142,7 +142,7 @@ export class PassengerLayer {
 
   /** Passenger anchor for bubbles: above their head. */
   headOf(p: Passenger): { x: number; y: number } {
-    return { x: p.x, y: p.y - PASSENGER.height - 4 };
+    return { x: p.x, y: p.y - 21 };
   }
 
   update(passengers: readonly Passenger[], dt: number, canFirstSightHail?: (p: Passenger) => boolean): void {
@@ -177,7 +177,8 @@ export class PassengerLayer {
         }
       }
       const waving = p.state === 'waiting' && this.bubbles.has(`p${p.id}`);
-      drawPerson(s.gfx, p.kind, walking ? s.phase : null, waving ? this.time : null, p.dir);
+      const waitingRing = p.state === 'waiting' ? (p.waitTicks >= 25 * 60 ? 0xffe066 : 0x6dd3ff) : null;
+      drawPerson(s.gfx, p.kind, walking ? s.phase : null, waving ? this.time : null, p.dir, waitingRing, this.time + p.id * 0.7);
       s.gfx.position.set(p.x, p.y);
       s.gfx.alpha = p.state === 'leaving' ? Math.min(1, p.leaveTicks / (LEAVE_TICKS * 0.5)) : 1;
     }
@@ -216,24 +217,43 @@ export class PassengerLayer {
   }
 }
 
-/** A tiny person, feet at (0,0), ~22u tall. */
-function drawPerson(g: Graphics, kind: number, walkPhase: number | null, waveTime: number | null, dir: number): void {
+/** A compact person, feet at (0,0), ~17–19u tall (proportioned cleanly to the 20u cab body). */
+function drawPerson(
+  g: Graphics,
+  kind: number,
+  walkPhase: number | null,
+  waveTime: number | null,
+  dir: number,
+  waitingRingColor: number | null,
+  ringPhase: number,
+): void {
   const look = lookFor(kind);
   g.clear();
-  const swing = walkPhase === null ? 0 : Math.sin(walkPhase) * 2.5;
-  const bob = walkPhase === null ? 0 : Math.abs(Math.sin(walkPhase)) * -0.8;
-  g.rect(-3.5 + swing, -7, 2.5, 7).fill(0x2b3050);
-  g.rect(1 - swing, -7, 2.5, 7).fill(0x2b3050);
-  g.roundRect(-4.5, -16 + bob, 9, 10, 3).fill(look.shirt);
-  g.circle(0, -19.5 + bob, 3.6).fill(look.skin);
+  if (waitingRingColor !== null) {
+    const pulse = 0.5 + 0.5 * Math.sin(ringPhase * 4.2);
+    g.ellipse(0, -0.5, 9 + pulse * 3, 2.1 + pulse * 0.6).stroke({
+      width: 1.2,
+      color: waitingRingColor,
+      alpha: 0.35 + 0.35 * (1 - pulse),
+    });
+    g.ellipse(0, -0.5, 7, 1.6).fill({ color: waitingRingColor, alpha: 0.16 });
+  }
+  const swing = walkPhase === null ? 0 : Math.sin(walkPhase) * 2;
+  const bob = walkPhase === null ? 0 : Math.abs(Math.sin(walkPhase)) * -0.6;
+  g.rect(-2.8 + swing, -5.5, 2, 5.5).fill(0x2b3050);
+  g.rect(0.8 - swing, -5.5, 2, 5.5).fill(0x2b3050);
+  g.roundRect(-3.6, -12.5 + bob, 7.2, 7.8, 2.4).fill(look.shirt);
+  g.circle(0, -15.3 + bob, 2.8).fill(look.skin);
   if (look.hat !== null) {
-    g.rect(-3.5, -25 + bob, 7, 3).fill(look.hat);
-    g.rect(-5, -22.5 + bob, 10, 1.3).fill(look.hat);
+    g.rect(-2.8, -19.6 + bob, 5.6, 2.3).fill(look.hat);
+    g.rect(-4, -17.6 + bob, 8, 1.1).fill(look.hat);
   }
   if (waveTime !== null) {
-    const handY = -24 + Math.sin(waveTime * 12) * 2;
-    g.moveTo(dir * 3, -14 + bob).lineTo(dir * 7, handY).stroke({ width: 2, color: look.shirt, cap: 'round' });
+    const handY = -18.8 + Math.sin(waveTime * 12) * 1.6;
+    g.moveTo(dir * 2.4, -11 + bob).lineTo(dir * 5.6, handY).stroke({ width: 1.7, color: look.shirt, cap: 'round' });
   } else {
-    g.moveTo(dir * 3.5, -14 + bob).lineTo(dir * 4.5 + swing * 0.4, -8 + bob).stroke({ width: 2, color: look.shirt, cap: 'round' });
+    g.moveTo(dir * 2.8, -11 + bob)
+      .lineTo(dir * 3.6 + swing * 0.4, -6.4 + bob)
+      .stroke({ width: 1.7, color: look.shirt, cap: 'round' });
   }
 }

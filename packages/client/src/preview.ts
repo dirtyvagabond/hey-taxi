@@ -134,6 +134,25 @@ export async function startSkinPreview(): Promise<void> {
   });
 
   stage.scale.set(ZOOM);
+
+  // Vertical scrolling so tall skin rosters stay reachable on any viewport height.
+  const contentH = (actualY + 46) * ZOOM;
+  let scrollY = 0;
+  const clampScroll = () => {
+    const maxScroll = Math.max(0, contentH - window.innerHeight);
+    scrollY = Math.max(0, Math.min(maxScroll, scrollY));
+    stage.y = -scrollY;
+  };
+  window.addEventListener(
+    'wheel',
+    (e) => {
+      scrollY += e.deltaY;
+      clampScroll();
+    },
+    { passive: true },
+  );
+  window.addEventListener('resize', clampScroll);
+
   let time = 0;
   app.ticker.add((tk) => {
     if (!still) time += tk.deltaMS / 1000;

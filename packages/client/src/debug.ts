@@ -1,5 +1,6 @@
 import GUI from 'lil-gui';
 import { DEFAULT_CONFIG, type SimConfig } from '@hey-taxi/sim';
+import { cameraZoomPreset, type CameraZoomId } from './camera';
 
 /** Display/audio preferences for this browser. Game tuning lives on the server, with the game. */
 const OPTIONS_KEY = 'hey-taxi.options.v2';
@@ -36,6 +37,7 @@ export interface DebugOptions {
   hitboxes: boolean;
   screenShake: boolean;
   showControls: boolean;
+  cameraZoom: CameraZoomId;
   panelOpen: boolean;
   volume: number;
   muted: boolean;
@@ -49,6 +51,7 @@ export function loadOptions(defaultLevel: string): DebugOptions {
     hitboxes: saved.hitboxes === true,
     screenShake: saved.screenShake !== false,
     showControls: saved.showControls !== false,
+    cameraZoom: cameraZoomPreset(saved.cameraZoom).id,
     panelOpen: saved.panelOpen === true,
     volume: typeof saved.volume === 'number' ? saved.volume : 0.6,
     muted: saved.muted === true,

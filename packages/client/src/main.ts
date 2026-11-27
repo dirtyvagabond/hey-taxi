@@ -23,7 +23,18 @@ import {
 } from '@hey-taxi/sim';
 import type { Command, Frame, GameStatus, ServerMessage } from '@hey-taxi/sim/protocol';
 import { Sound } from './audio';
-import { Camera, HUD_H, SCREEN_H, SCREEN_W, VIEW_H, VIEW_W } from './camera';
+import {
+  Camera,
+  cameraZoomPreset,
+  cameraZoomTag,
+  HUD_H,
+  nextCameraZoom,
+  SCREEN_H,
+  SCREEN_W,
+  targetCameraZoom,
+  VIEW_H,
+  VIEW_W,
+} from './camera';
 import { createDebugPanel, loadOptions, resetStorageIfNeeded, saveOptions } from './debug';
 import { pickLine, type CommentCategory } from './dialogue';
 import { EventPresenter, rivalColor } from './events';
@@ -72,6 +83,8 @@ class Game {
   private vpW = VIEW_W;
   private vpH = VIEW_H;
   private viewScale = 1;
+  private zoom = 1.25;
+  private playerPingTime = 0;
   private watchTransform = { scale: 1, ox: 0, oy: 0 };
   private hoveredWatchTaxiId: string | null = null;
   private particles = new Particles();
@@ -248,6 +261,7 @@ class Game {
     );
     this.app.stage.addChild(this.view);
 
+    this.zoom = cameraZoomPreset(this.options.cameraZoom).zoom;
     this.layout();
     window.addEventListener('resize', () => this.layout());
     this.bindKeys();
@@ -272,6 +286,7 @@ class Game {
       onOptionChanged: () => {
         this.applyAudio();
         saveOptions(this.options);
+        this.updateTextResolution();
       },
       onToggleTuning: () => this.toggleTuning(),
       isTuningVisible: () => this.guiVisible,
@@ -353,6 +368,11 @@ class Game {
       this.screens.openReviewAfterMenu();
     });
     this.keyboard.onKey('KeyM', () => this.toggleMute());
+    this.keyboard.onKey('KeyZ', () => this.cycleCameraZoom());
+    // Temporary convenience control: explode current taxi to start over via normal death UI.
+    const selfDestruct = () => this.triggerSelfDestruct();
+    this.keyboard.onKey('Delete', selfDestruct);
+    this.keyboard.onKey('Backspace', selfDestruct);
     if (import.meta.env.DEV) {
       this.keyboard.onKey('KeyI', () => {
         this.showDiagnostics = !this.showDiagnostics;
@@ -386,6 +406,47 @@ class Game {
     this.applyAudio();
     saveOptions(this.options);
     this.hud.flash(this.options.muted ? 'SOUND OFF' : 'SOUND ON', HUD_COLORS.info);
+  }
+
+  private cycleCameraZoom(): void {
+    if (
+      this.settings.isOpen ||
+      this.screens.isLobbyOpen ||
+      this.screens.isReviewOpen ||
+      this.screens.isPickerOpen ||
+      this.overview.isOpen ||
+      this.isWatchingLocale
+    ) {
+      return;
+    }
+    const next = nextCameraZoom(this.options.cameraZoom);
+    this.options.cameraZoom = next.id;
+    saveOptions(this.options);
+    this.settings?.sync();
+    this.updateTextResolution();
+    this.hud.flash(
+      `ZOOM: ${next.label.toUpperCase()} (${cameraZoomTag(next)})`,
+      HUD_COLORS.info,
+      'Press Z to cycle · or change in Settings',
+    );
+  }
+
+  private triggerSelfDestruct(): void {
+    if (
+      !this.connected ||
+      this.paused ||
+      this.mode !== 'playing' ||
+      this.settings.isOpen ||
+      this.screens.isLobbyOpen ||
+      this.screens.isReviewOpen ||
+      this.screens.isPickerOpen ||
+      this.overview.isOpen ||
+      this.isSpectating ||
+      this.isWatchingLocale
+    ) {
+      return;
+    }
+    this.command('selfDestruct');
   }
 
   private toggleTuning(): void {
@@ -645,20 +706,24 @@ class Game {
   }
 
   private isPassengerOnScreen(p: Passenger): boolean {
+    const vw = this.vpW / this.zoom;
+    const vh = this.vpH / this.zoom;
     return (
       p.x >= this.camera.x - 20 &&
-      p.x <= this.camera.x + VIEW_W + 20 &&
+      p.x <= this.camera.x + vw + 20 &&
       p.y >= this.camera.y &&
-      p.y - 48 <= this.camera.y + VIEW_H
+      p.y - 48 <= this.camera.y + vh
     );
   }
 
   /** Stereo pan `[-0.65, +0.65]` and distance outside the viewport (0 when on-screen). */
   private spatialFor(x: number, y: number): { pan: number; offscreenDist: number } {
-    const cx = this.camera.x + VIEW_W / 2;
-    const pan = Math.max(-0.65, Math.min(0.65, (x - cx) / (VIEW_W * 0.85)));
-    const dx = x < this.camera.x ? this.camera.x - x : x > this.camera.x + VIEW_W ? x - (this.camera.x + VIEW_W) : 0;
-    const dy = y < this.camera.y ? this.camera.y - y : y - 48 > this.camera.y + VIEW_H ? y - 48 - (this.camera.y + VIEW_H) : 0;
+    const vw = this.vpW / this.zoom;
+    const vh = this.vpH / this.zoom;
+    const cx = this.camera.x + vw / 2;
+    const pan = Math.max(-0.65, Math.min(0.65, (x - cx) / (vw * 0.85)));
+    const dx = x < this.camera.x ? this.camera.x - x : x > this.camera.x + vw ? x - (this.camera.x + vw) : 0;
+    const dy = y < this.camera.y ? this.camera.y - y : y - 48 > this.camera.y + vh ? y - 48 - (this.camera.y + vh) : 0;
     return { pan, offscreenDist: Math.hypot(dx, dy) };
   }
 
@@ -708,9 +773,16 @@ class Game {
   }
 
   private snapToTaxi(): void {
+    this.zoom = cameraZoomPreset(this.options.cameraZoom).zoom;
+    this.playerPingTime = 2.2;
     for (const t of this.sim.taxis) this.prev.set(t.id, { x: t.x, y: t.y });
     const target = this.taxiById(this.viewedId) ?? this.sim.taxis[0];
-    if (target) this.camera.snap(target.x, target.y, this.sim.level.width, this.sim.level.height);
+    if (target) this.camera.snap(target.x, target.y, this.sim.level.width, this.sim.level.height, this.zoom, this.vpW, this.vpH);
+  }
+
+  private updateTextResolution(): void {
+    const targetZoom = cameraZoomPreset(this.options.cameraZoom).zoom;
+    setTextResolution(Math.max(1, this.viewScale * Math.max(1, targetZoom) * this.app.renderer.resolution));
   }
 
   private layout(): void {
@@ -725,19 +797,22 @@ class Game {
       this.vpH = h / s;
       this.view.position.set(0, 0);
       this.hud.bar.visible = false;
+      this.hud.bar.x = 0;
       this.playfield.y = 0;
       this.hud.overlay.x = (this.vpW - VIEW_W) / 2;
     } else {
-      this.vpW = VIEW_W;
+      // Full-width widescreen playfield with centered 1280u HUD instruments on a full-bleed bar.
+      this.vpW = Math.max(VIEW_W, w / s);
       this.vpH = VIEW_H;
-      this.view.position.set(Math.floor((w - SCREEN_W * s) / 2), Math.floor((h - SCREEN_H * s) / 2));
+      this.view.position.set(Math.floor((w - this.vpW * s) / 2), Math.floor((h - SCREEN_H * s) / 2));
       this.hud.bar.visible = true;
+      this.hud.bar.x = (this.vpW - VIEW_W) / 2;
       this.playfield.y = HUD_H;
-      this.hud.overlay.x = 0;
+      this.hud.overlay.x = (this.vpW - VIEW_W) / 2;
     }
     this.playfieldMask.clear().rect(0, 0, this.vpW, this.vpH).fill(0xffffff);
     this.playfieldSky.clear().rect(0, 0, this.vpW, this.vpH).fill(COLORS.sky);
-    setTextResolution(Math.max(1, s * this.app.renderer.resolution));
+    this.updateTextResolution();
   }
 
   // ── Frame & render loop ──────────────────────────────────────────────────────
@@ -824,11 +899,24 @@ class Game {
     const watching = this.isWatchingLocale;
     const spectating = this.isSpectating;
     const showSelfName = watching || spectating;
+    if (this.playerPingTime > 0 && !this.paused && !watching && !spectating && !this.overview.isOpen) {
+      this.playerPingTime = Math.max(0, this.playerPingTime - dt);
+    }
+    const youPingAlpha = this.playerPingTime > 0 ? Math.min(1, this.playerPingTime / 0.6) : 0;
+    const localTaxi = this.taxiById(this.localId);
+    const localPos = localTaxi
+      ? (() => {
+          const p = this.prev.get(localTaxi.id) ?? localTaxi;
+          return { x: p.x + (localTaxi.x - p.x) * alpha, y: p.y + (localTaxi.y - p.y) * alpha };
+        })()
+      : null;
     for (const taxi of this.sim.taxis) {
       const view = this.viewOf(taxi);
       const prev = this.prev.get(taxi.id) ?? taxi;
       const pos = { x: prev.x + (taxi.x - prev.x) * alpha, y: prev.y + (taxi.y - prev.y) * alpha };
       this.rendered.set(taxi.id, pos);
+      const distFromPlayer =
+        !watching && localPos && taxi.id !== this.localId ? Math.hypot(pos.x - localPos.x, pos.y - localPos.y) : 0;
       view.update(
         taxi,
         pos.x,
@@ -839,6 +927,8 @@ class Game {
         this.localId,
         (id) => this.nameOf(id),
         showSelfName,
+        distFromPlayer,
+        youPingAlpha,
       );
       const rider = riderOf(this.sim, taxi.id);
       view.setRider(rider ? rider.kind : null);
@@ -872,18 +962,26 @@ class Game {
       this.guides.world.visible = false;
       this.guides.screen.visible = false;
     } else if (t) {
+      const preset = cameraZoomPreset(this.options.cameraZoom);
+      const speed = live ? Math.hypot(t.vx, t.vy) : 0;
+      const targetZoom = targetCameraZoom(preset, speed);
+      const rate = preset.dynamic ? (targetZoom < this.zoom ? 3.5 : 1.8) : 10;
+      const zk = 1 - Math.exp(-dt * rate);
+      this.zoom += (targetZoom - this.zoom) * zk;
+      if (Math.abs(targetZoom - this.zoom) < 0.001) this.zoom = targetZoom;
       const { x, y } = this.drawnAt(t.id);
-      if (live) this.camera.follow(x, y, t.vx, t.vy, level.width, level.height, dt);
+      if (live) this.camera.follow(x, y, t.vx, t.vy, level.width, level.height, dt, this.zoom, this.vpW, this.vpH);
+      else this.camera.snap(x, y, level.width, level.height, this.zoom, this.vpW, this.vpH);
       const shake = this.options.screenShake && !this.paused ? this.camera.shakeOffset(dt) : { x: 0, y: 0 };
-      this.world.scale.set(1);
-      this.world.position.set(-this.camera.x + shake.x, -this.camera.y + shake.y);
+      this.world.scale.set(this.zoom);
+      this.world.position.set(-this.camera.x * this.zoom + shake.x, -this.camera.y * this.zoom + shake.y);
       if (this.worldView) this.worldView.background.visible = true;
       this.worldView?.updateParallax(this.camera.x, this.camera.y);
       this.guides.world.visible = true;
       this.guides.screen.visible = true;
-      this.guides.update(this.guideTarget(t), this.camera.x, this.camera.y, this.time);
+      this.guides.update(this.guideTarget(t), this.camera.x, this.camera.y, this.time, this.zoom, this.vpW, this.vpH);
     }
-    this.envView.update(this.sim, this.time, this.paused ? 0 : dt);
+    this.envView.update(this.sim, this.time, this.paused ? 0 : dt, this.vpW);
 
     const armed = !!t && (t.missiles > 0 || this.config.missilesUnlimited);
     const target =
@@ -1025,6 +1123,7 @@ class Game {
   private setOverview(open: boolean): void {
     if (!this.connected) return;
     this.keyboard.clear();
+    if (!open) this.playerPingTime = 2.0;
     this.conn.send({ t: 'overview', open });
   }
 
@@ -1119,6 +1218,7 @@ class Game {
   private returnToPlayer(): void {
     if (!this.connected) return;
     this.keyboard.clear();
+    this.playerPingTime = 2.0;
     this.conn.send({ t: 'spectate', taxiId: null });
   }
 

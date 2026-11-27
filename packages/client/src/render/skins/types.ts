@@ -9,7 +9,15 @@ import type { Container } from 'pixi.js';
  */
 export type HullStage = 0 | 1 | 2 | 3 | 4;
 
-export type SkinId = 'original' | 'pixelHomage' | 'softRetro' | 'ghostNeon' | 'cyberTaxi';
+export type SkinId =
+  | 'original'
+  | 'pixelHomage'
+  | 'softRetro'
+  | 'neonGhost'
+  | 'cyberTaxi'
+  | 'shuttle'
+  | 'bathCab'
+  | 'saucerCab';
 
 /**
  * One taxi's artwork in a given skin. Everything is drawn in taxi-local units around the
@@ -32,12 +40,26 @@ export interface SkinArt {
   setRider(kind: number | null): void;
 }
 
+/** Optional thruster flame anchor offsets in taxi-local (right-facing) units. */
+export interface SkinThrusters {
+  /** Tail (left) thruster x when facing right (default -TAXI.halfW). */
+  leftX?: number;
+  /** Nose (right) thruster x when facing right (default +TAXI.halfW). */
+  rightX?: number;
+  /** Top (downward-thrust) nozzle y (default -TAXI.halfH). */
+  topY?: number;
+  /** Bottom (upward-thrust) nozzle y (default +TAXI.halfH). */
+  bottomY?: number;
+}
+
 export interface SkinDef {
   id: SkinId;
   /** Shown to the player when choosing. */
   name: string;
   /** The player's body color in this skin (rivals use their own colors). */
   playerColor: number;
+  /** Optional custom thruster flame anchors so flames emerge flush with the hull. */
+  thrusters?: SkinThrusters;
   /** `color`: the body color (the player's yellow, or a rival's own color). */
   create(color: number): SkinArt;
 }

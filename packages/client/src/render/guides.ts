@@ -32,7 +32,15 @@ export class Guides {
     this.screen.addChild(this.arrow, this.label);
   }
 
-  update(target: GuideTarget | null, camX: number, camY: number, time: number): void {
+  update(
+    target: GuideTarget | null,
+    camX: number,
+    camY: number,
+    time: number,
+    zoom = 1,
+    vpW = VIEW_W,
+    vpH = VIEW_H,
+  ): void {
     const g = this.world;
     g.clear();
     this.arrow.clear();
@@ -51,11 +59,11 @@ export class Guides {
     g.poly([cx - 7, cy, cx + 7, cy, cx, cy + 8]).fill({ color, alpha: 0.9 });
 
     // Off-screen arrow, in view coordinates.
-    const sx = cx - camX;
-    const sy = y - 20 - camY;
-    if (sx >= 0 && sx <= VIEW_W && sy >= 0 && sy <= VIEW_H) return;
-    const ex = Math.min(Math.max(sx, EDGE_MARGIN), VIEW_W - EDGE_MARGIN);
-    const ey = Math.min(Math.max(sy, EDGE_MARGIN + 70), VIEW_H - EDGE_MARGIN - 20);
+    const sx = (cx - camX) * zoom;
+    const sy = (y - 20 - camY) * zoom;
+    if (sx >= 0 && sx <= vpW && sy >= 0 && sy <= vpH) return;
+    const ex = Math.min(Math.max(sx, EDGE_MARGIN), vpW - EDGE_MARGIN);
+    const ey = Math.min(Math.max(sy, EDGE_MARGIN + 70), vpH - EDGE_MARGIN - 20);
     const a = Math.atan2(sy - ey, sx - ex);
     const tip = { x: ex + Math.cos(a) * 14, y: ey + Math.sin(a) * 14 };
     const l = { x: ex + Math.cos(a + 2.5) * 10, y: ey + Math.sin(a + 2.5) * 10 };

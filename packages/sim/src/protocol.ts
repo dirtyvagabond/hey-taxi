@@ -289,7 +289,7 @@ export type ClientMessage =
   /** Development builds only: patch a taxi's state (automated checks). */
   | { t: 'debug'; taxiId: string; patch: Record<string, unknown> };
 
-export type Command = 'advance' | 'pause' | 'menu' | 'respawn';
+export type Command = 'advance' | 'pause' | 'menu' | 'respawn' | 'selfDestruct';
 
 export type ServerMessage =
   | {

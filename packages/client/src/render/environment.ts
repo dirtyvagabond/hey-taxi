@@ -60,9 +60,9 @@ export class EnvironmentView {
     }
 
     if (level.theme === 'winter' || level.wind) {
-      for (let i = 0; i < 110; i++) {
+      for (let i = 0; i < 150; i++) {
         this.flakes.push({
-          x: Math.random() * VIEW_W,
+          x: Math.random() * 2400,
           y: Math.random() * VIEW_H,
           r: 1.1 + Math.random() * 1.8,
           speed: 35 + Math.random() * 55,
@@ -71,7 +71,7 @@ export class EnvironmentView {
     }
   }
 
-  update(sim: SimState, time: number, dt: number): void {
+  update(sim: SimState, time: number, dt: number, vpW = VIEW_W): void {
     const level = this.level;
     this.underlayGfx.clear();
     this.overlayGfx.clear();
@@ -182,7 +182,7 @@ export class EnvironmentView {
       const w = globalWind(level, sim.tick);
       const vx = w.ax * 2.6 + (w.warning ? Math.sign(w.ax || 1) * 80 : 0);
       for (const f of this.flakes) {
-        f.x = (f.x + vx * dt + VIEW_W) % VIEW_W;
+        f.x = (f.x + vx * dt + vpW) % vpW;
         f.y = (f.y + f.speed * dt) % VIEW_H;
         if (Math.abs(vx) > 90) {
           this.weatherGfx
