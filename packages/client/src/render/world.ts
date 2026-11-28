@@ -1,6 +1,7 @@
 import { Container, Graphics } from 'pixi.js';
 import type { Level, LevelTheme } from '@hey-taxi/sim';
 import { MAX_CAMERA_ZOOM, VIEW_H, VIEW_W } from '../camera';
+import { drawCanyonPads, drawCanyonSky, drawCanyonSkyline, drawCanyonTerrain } from './canyon';
 import { makeText } from './text';
 
 export interface ThemePalette {
@@ -120,12 +121,20 @@ export class WorldView {
   constructor(level: Level) {
     const pal = THEME_PALETTES[level.theme] ?? COLORS;
     const rand = seeded(level.name.length * 7919 + level.cols * 31 + level.rows);
-    const sky = new Graphics().rect(-2000, 0, VIEW_W + 4000, VIEW_H).fill(pal.sky);
+    const sky =
+      level.theme === 'canyon'
+        ? drawCanyonSky(VIEW_W, VIEW_H, rand)
+        : new Graphics().rect(-2000, 0, VIEW_W + 4000, VIEW_H).fill(pal.sky);
     this.stars = drawStars(level, rand);
     this.skyline = drawSkyline(level, rand, pal);
     this.background.addChild(sky, this.stars, this.skyline);
-    this.terrain.addChild(drawTiles(level, pal));
-    drawPads(level, this.terrain, pal);
+    if (level.theme === 'canyon') {
+      this.terrain.addChild(drawCanyonTerrain(level, rand));
+      drawCanyonPads(level, this.terrain, pal);
+    } else {
+      this.terrain.addChild(drawTiles(level, pal));
+      drawPads(level, this.terrain, pal);
+    }
   }
 
   updateParallax(camX: number, camY: number): void {
@@ -162,21 +171,22 @@ function drawStars(level: Level, rand: () => number): Graphics {
 }
 
 function drawSkyline(level: Level, rand: () => number, pal: ThemePalette): Graphics {
-  const g = new Graphics();
   const [w, h] = layerSize(level, SKYLINE_PARALLAX);
-  if (level.theme === 'winter' || level.theme === 'canyon') {
-    // Jagged mountain / mesa peaks silhouette.
+  if (level.theme === 'canyon') {
+    return drawCanyonSkyline(w, h, rand);
+  }
+  const g = new Graphics();
+  if (level.theme === 'winter') {
+    // Jagged mountain peaks silhouette.
     let x = -40;
     while (x < w + 60) {
       const pw = 90 + rand() * 140;
       const ph = 110 + rand() * 220;
       g.poly([x, h, x + pw * 0.5, h - ph, x + pw, h]).fill(pal.skyline);
-      if (level.theme === 'winter') {
-        g.poly([x + pw * 0.36, h - ph * 0.72, x + pw * 0.5, h - ph, x + pw * 0.64, h - ph * 0.72]).fill({
-          color: 0xdff4ff,
-          alpha: 0.22,
-        });
-      }
+      g.poly([x + pw * 0.36, h - ph * 0.72, x + pw * 0.5, h - ph, x + pw * 0.64, h - ph * 0.72]).fill({
+        color: 0xdff4ff,
+        alpha: 0.22,
+      });
       x += pw * 0.62;
     }
     return g;

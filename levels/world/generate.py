@@ -254,20 +254,34 @@ locales.append(('7-gridlock-vault', 'Gridlock Vault', 2.6, (4.8, 8), 4,
 h = L(96, 36)
 # West bunker & canyon floor
 h.pad('1', 33, 2, 7, base=1); h.g[32][4] = 'S'
-h.fill(24, 24, 1, 18)                                     # bunker roof sheltering spawn & teleport
+h.fill(24, 24, 1, 18)                                     # bunker overhang sheltering spawn & teleport
+h.fill(22, 23, 13, 15); h.fill(21, 21, 14, 14)            # craggy rock fin atop west overhang
 h.pad('T', 33, 10, 16, base=1)
-h.pad('2', 14, 4, 9, base=1)                              # exposed west mesa
+h.pad('2', 14, 4, 9, base=1)                              # exposed west hoodoo (Mitten Saddle)
+h.fill(10, 15, 2, 3); h.fill(12, 15, 10, 10)              # solid left Mitten cliff (meteor shield) + right thumb spire
 h.pad('F', 33, 22, 26, base=1)                            # west canyon store
-# Central spires & sheltered ledges
+h.fill(31, 34, 21, 21)                                    # framing rock fin left of store
+# Central spires & sheltered hoodoos
 h.fill(18, 34, 32, 35); h.pad('3', 17, 31, 36, base=0)    # tall canyon spire
-h.fill(10, 10, 40, 56); h.pad('4', 18, 44, 49, base=1)    # wide stone arch sheltering pad 4
+h.fill(31, 34, 31, 36); h.fill(33, 34, 30, 37)            # stepped talus base
+h.fill(14, 17, 30, 30)                                    # solid left Mitten thumb spire
+h.fill(10, 10, 40, 56); h.fill(11, 11, 40, 41); h.fill(11, 11, 55, 56); h.fill(9, 9, 44, 51)  # sculpted stone arch
+h.pad('4', 18, 44, 49, base=1)                            # sheltered hoodoo under arch (Twin-Fin)
+h.fill(15, 19, 42, 43); h.fill(16, 19, 50, 50)            # solid flanking Mitten wall + right thumb
 h.pad('5', 33, 44, 49, base=1)                            # floor pad under arch
-h.pad('6', 25, 58, 63, base=1)                            # mid ledge
-# East plasma mesas
+h.fill(31, 34, 42, 43)                                    # stepped rock shoulder left of pad 5
+h.pad('6', 25, 58, 63, base=1)                            # mid hoodoo (Flanked Canyon Shelf)
+h.fill(21, 26, 56, 57)                                    # solid left meteor-shield butte
+# East mesas & stepped hoodoos
 h.fill(15, 34, 69, 71); h.pad('7', 14, 68, 73, base=0)    # east spire
-h.fill(23, 23, 74, 92); h.pad('8', 32, 78, 83, base=2)    # sheltered east bunker pad
-h.pad('F', 12, 84, 88, base=1)                            # exposed high-mesa store
-h.pad('9', 19, 86, 91, base=1)                            # east cliffside pad
+h.fill(31, 34, 68, 72); h.fill(33, 34, 67, 73)            # stepped talus base
+h.fill(10, 15, 74, 74); h.fill(12, 15, 75, 75)            # solid stepped Mitten butte right of pad 7
+h.fill(23, 23, 74, 92); h.fill(22, 22, 76, 80)            # sheltered east overhang with rock crown
+h.pad('8', 32, 78, 83, base=2)                            # sheltered east canyon pad
+h.pad('F', 12, 84, 88, base=1)                            # high-mesa store (Stepped Caprock Terrace)
+h.fill(9, 13, 89, 90); h.fill(11, 13, 91, 91)             # solid stepped caprock terrace right of store
+h.pad('9', 19, 86, 91, base=1)                            # east cliffside hoodoo
+h.fill(17, 20, 85, 85)                                    # solid left fin framing pad 9
 h.pad('T', 33, 60, 66, base=1)                            # second teleport
 locales.append(('8-overdrive-canyon', 'Overdrive Canyon', 3.0, (4.5, 8), 4,
   'Turbo-charged thrusters, heavy gravity, and falling meteors. Watch your fuel—fares pay triple!', h, {
