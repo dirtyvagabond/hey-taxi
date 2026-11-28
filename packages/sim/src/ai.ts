@@ -15,6 +15,7 @@ import { DT, Input, TAXI, TICK_RATE } from './constants';
 import { envForceAt, laserState, pointInGravityCore, windAt } from './env';
 import { boxHitsSolid, padIndexAt, type Level, type Pad } from './level';
 import { hasLineOfFire, shopMultiplier, storeItem, targetable, type StoreItem } from './missiles';
+import { acceptsDriver, canBoardHere, walkable } from './journeys';
 import { PASSENGER, riderOf } from './passengers';
 import { aiProfile, type AiProfile } from './personality';
 import { nextRandom } from './rng';
@@ -26,6 +27,8 @@ export interface AiState {
   goal: string;
   padIndex: number;
   landX: number;
+  /** Surface elevation for a roadside pickup outside the numbered pads. */
+  surfaceY?: number;
   /** Planned route as flattened [x0, y0, x1, y1, …] waypoints (world units). */
   route: number[];
   replanIn: number;
@@ -61,6 +64,8 @@ interface Goal {
   key: string;
   padIndex: number;
   landX: number;
+  /** Surface elevation for a roadside pickup outside the numbered pads. */
+  surfaceY?: number;
   /** Stay put (landed): waiting for a passenger to board, refueling, or idle. */
   stay?: boolean;
   /** Airborne pursuit target (for Vendetta hunting, no landing). */
@@ -102,7 +107,10 @@ function ensureAi(t: Taxi): AiState {
 export function npcInput(s: SimState, t: Taxi): number {
   const ai = ensureAi(t);
   const prof = aiProfile(t.personality);
-  return moveInput(s, t, ai, prof) | combatInput(s, t, ai, prof) | shopInput(s, t, prof);
+  const emergency = t.passengerId >= 0 && t.status === 'flying' && (t.fuel <= 0 ||
+    (t.hp <= s.config.missileDamage && t.flares === 0 && s.missiles.some(m =>
+      m.targetId === t.id && Math.hypot(t.x - m.x, t.y - m.y) < 150)));
+  return (emergency ? Input.EJECT : 0) | moveInput(s, t, ai, prof) | combatInput(s, t, ai, prof) | shopInput(s, t, prof);
 }
 
 // ── Dynamic relationship memory (vendettas & fear) ───────────────────────────
@@ -461,7 +469,7 @@ function shopInput(s: SimState, t: Taxi, prof: AiProfile): number {
 function moveInput(s: SimState, t: Taxi, ai: AiState, prof: AiProfile): number {
   const goal = chooseGoal(s, t, prof);
   if (t.status === 'landed') ai.landing = false;
-  if (t.status === 'landed' && (goal.stay || (!goal.hunt && goal.padIndex === t.padIndex))) {
+  if (t.status === 'landed' && (goal.stay || (!goal.hunt && goal.surfaceY === undefined && goal.padIndex === t.padIndex))) {
     ai.goal = '';
     return 0;
   }
@@ -482,6 +490,7 @@ function moveInput(s: SimState, t: Taxi, ai: AiState, prof: AiProfile): number {
     ai.replanIn = 0;
     ai.landing = false;
   }
+  ai.surfaceY = goal.surfaceY;
   ai.padIndex = goal.padIndex;
   ai.landX = goal.landX;
   if (--ai.replanIn <= 0) {
@@ -573,7 +582,7 @@ function chooseGoal(s: SimState, t: Taxi, prof: AiProfile): Goal {
   // A passenger is already walking over to board us: stay put until they're aboard rather than
   // lifting off mid-walk (which annoys them, and if fuel is critically low, prevents
   // wantsServiceSummon from firing once they board).
-  if (here >= 0 && s.passengers.some((p) => p.state === 'walking' && p.taxiId === t.id)) return stay;
+  if (t.status === 'landed' && s.passengers.some((p) => p.state === 'walking' && p.taxiId === t.id)) return stay;
 
   /** Fuel to fly `legs` (pad indices, in order) from here and still reach the fuel pad. */
   const fuelFor = (...legs: number[]): number => {
@@ -706,10 +715,13 @@ function chooseGoal(s: SimState, t: Taxi, prof: AiProfile): Goal {
     s.taxis.some((o) => o !== t && o.status === 'landed' && o.padIndex === padIndex);
   const claimed = (id: number) => s.taxis.some((o) => o !== t && o.npc && isActive(o) && o.ai?.goal === `pick:${id}`);
   const nearThreat = (x: number, y: number) => !!threat && Math.hypot(x - threat.x, y - threat.y) < 260;
+  const roadside = new Map<number, number>();
   const waiting = s.passengers.filter(
     (p) =>
       p.state === 'waiting' &&
-      !occupied(p.padIndex) &&
+      acceptsDriver(s, p, t) &&
+      (p.padIndex >= 0 ? (!occupied(p.padIndex) || (p.refusedDrivers.length > 0 && padHasRoom(s, t, p.padIndex))) :
+        roadsidePickup(s, p, t, roadside)) &&
       (prof.poachWilling || !claimed(p.id)) &&
       !nearThreat(p.x, p.y),
   );
@@ -726,6 +738,8 @@ function chooseGoal(s: SimState, t: Taxi, prof: AiProfile): Goal {
         bestP = p;
       }
     }
+    if (canBoardHere(s, bestP, t)) return stay;
+    if (bestP.padIndex < 0) return { key: `pick:${bestP.id}`, padIndex: -1, landX: roadside.get(bestP.id)!, surfaceY: bestP.y };
     if (fuelPad && gasOk && goal !== `pick:${bestP.id}` && t.fuel < fuelFor(bestP.padIndex)) return refuel();
     return padGoal(s, t, bestP.padIndex, `pick:${bestP.id}`);
   }
@@ -742,6 +756,19 @@ function chooseGoal(s: SimState, t: Taxi, prof: AiProfile): Goal {
   );
   const pad = nearest(quiet.length ? quiet : level.pads, t, (p) => [p.x + p.w / 2, p.y]);
   return padGoal(s, t, pad.index, `idle:${pad.index}`);
+}
+
+/** Find a supported landing next to a stranded passenger on the same stretch of ground. */
+function roadsidePickup(s: SimState, p: Passenger, t: Taxi, spots: Map<number, number>): boolean {
+  for (const offset of [-56, 56, -88, 88, -120, 120]) {
+    const x = p.x + offset;
+    if (!walkable(s, p.x, x, p.y) || !walkable(s, x - TAXI.feetHalfW, x + TAXI.feetHalfW, p.y)) continue;
+    if (boxHitsSolid(s.level, x - TAXI.halfW, p.y - 64, x + TAXI.halfW, p.y)) continue;
+    if (s.taxis.some(o => o !== t && o.status === 'landed' && Math.abs(o.x - x) < 58 && Math.abs(o.y + 24 - p.y) < 30)) continue;
+    spots.set(p.id, x);
+    return true;
+  }
+  return false;
 }
 
 /** Is there a spot on this pad clear of any taxi parked there (a taxi's width plus a margin)? */
@@ -850,8 +877,7 @@ function plan(s: SimState, t: Taxi, goal: Goal): number[] {
     for (const [c, r] of cells) route.push(cellX(level, c), cellY(level, r));
     return route;
   }
-  const pad = level.pads[goal.padIndex]!;
-  const padRow = Math.round(pad.y / ts);
+  const padRow = Math.round((goal.surfaceY ?? level.pads[goal.padIndex]!.y) / ts);
   const hover = hoverPoint(level, goal);
   // Aim for the cell two rows above the pad if there's room (cleaner approach), else one row.
   const goalCol = Math.round(goal.landX / ts - 1);
@@ -872,8 +898,8 @@ function plan(s: SimState, t: Taxi, goal: Goal): number[] {
 const HOVER_CLEARANCE = PASSENGER.height + 8;
 
 function hoverPoint(level: Level, goal: Goal): [number, number] {
-  const pad = level.pads[goal.padIndex]!;
-  return [goal.landX, pad.y - TAXI.gearLength - TAXI.halfH - HOVER_CLEARANCE];
+  const surface = goal.surfaceY ?? level.pads[goal.padIndex]!.y;
+  return [goal.landX, surface - TAXI.gearLength - TAXI.halfH - HOVER_CLEARANCE];
 }
 
 /** Reusable scratch buffers for shortestPath() to avoid per-replan TypedArray allocations. */
@@ -1116,13 +1142,13 @@ const DRIFT_ABORT = 14;
  * Drifting too far off the spot with the gear down raises it again to re-align.
  */
 function land(s: SimState, t: Taxi, ai: AiState, prof: AiProfile): number {
-  const pad = s.level.pads[ai.padIndex]!;
-  const [, hoverY] = hoverPoint(s.level, { key: ai.goal, padIndex: ai.padIndex, landX: ai.landX });
+  const surface = ai.surfaceY ?? s.level.pads[ai.padIndex]!.y;
+  const [, hoverY] = hoverPoint(s.level, { key: ai.goal, padIndex: ai.padIndex, landX: ai.landX, surfaceY: ai.surfaceY });
   const dx = ai.landX - t.x;
   // Never descend onto someone standing on the pad (allow extra margin for lateral drift).
   const someoneBelow = s.passengers.some(
     (p) =>
-      p.padIndex === ai.padIndex &&
+      (ai.surfaceY !== undefined ? Math.abs(p.y - surface) < 40 : p.padIndex === ai.padIndex) &&
       (p.state === 'waiting' || p.state === 'walking') &&
       Math.abs(p.x - t.x) < TAXI.halfW + PASSENGER.halfW + 6,
   );
@@ -1153,7 +1179,7 @@ function land(s: SimState, t: Taxi, ai: AiState, prof: AiProfile): number {
   if (!t.gearDown || t.gear < 1 || drifted || someoneBelow || strongGust || ax || ay) {
     vyd = clamp((hoverY - t.y) * 3, -50, 40); // hold at hover height
   } else {
-    const h = pad.y - (t.y + TAXI.halfH + TAXI.gearLength);
+    const h = surface - (t.y + TAXI.halfH + TAXI.gearLength);
     vyd = clamp(18 + h * 0.7, 18, prof.landDescendMax);
   }
   const vxd = clamp(dx * 3, -40, 40);
@@ -1283,6 +1309,18 @@ function separation(
       const k = ((170 - d) / 170) * 220;
       ax += px * side * k;
       ay += py * side * k;
+    }
+  }
+  // Keep clear of airborne passengers so rivals don't run over parachutists.
+  for (const p of s.passengers) {
+    if (p.state !== 'parachuting' && p.state !== 'hopping') continue;
+    const dx = t.x - p.x;
+    const dy = t.y - (p.y - PASSENGER.height / 2);
+    const d = Math.hypot(dx, dy);
+    if (d > 1 && d < 75) {
+      const k = ((75 - d) / 75) * 140;
+      ax += (dx / d) * k;
+      ay += (dy / d) * k;
     }
   }
   return [ax, ay];

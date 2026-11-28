@@ -6,6 +6,9 @@ import {
   isActive,
   landingMaxVy,
   riderOf,
+  acceptsDriver,
+  localeName,
+  needsTransfer,
   serviceCraftFor,
   sideThrustAvailable,
   storeItem,
@@ -46,7 +49,7 @@ export function nearestWaiting(sim: SimState, t: Taxi): Passenger | undefined {
   let best: Passenger | undefined;
   let bestD = Infinity;
   for (const p of sim.passengers) {
-    if (p.state !== 'waiting') continue;
+    if (p.state !== 'waiting' || !acceptsDriver(sim, p, t)) continue;
     const d = Math.hypot(p.x - t.x, p.y - t.y);
     if (d < bestD) {
       best = p;
@@ -561,8 +564,9 @@ export class Hud {
       const tipColor = pct >= 15 ? HUD_COLORS.good : pct >= 8 ? HUD_COLORS.warn : HUD_COLORS.bad;
       const left = Math.ceil(((rider.dueTicks ?? 0) - (rider.rideTicks ?? 0)) / 60);
       const clock = left > 0 ? `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}` : 'LATE';
-      set(this.jobText, `TAKE TO PAD ${pads[rider.destPadIndex]!.label} · ${clock}`, left > 0 ? HUD_COLORS.warn : HUD_COLORS.bad);
-      set(this.payText, `$${rider.fare.toFixed(2)} + TIP $${Math.max(0, rider.tip).toFixed(2)} (${Math.floor(pct)}%)`, tipColor);
+      const request = needsTransfer(sim, rider) ? localeName(rider.destination.localeId) : 'Pad ' + pads[rider.destPadIndex]!.label;
+      set(this.jobText, `${rider.person.name} → ${request} · ${clock}`, left > 0 ? HUD_COLORS.warn : HUD_COLORS.bad);
+      set(this.payText, rider.temporaryStop ? 'TEMPORARY STOP · NO PAY · E eject' : `$${rider.fare.toFixed(2)} + TIP $${Math.max(0, rider.tip).toFixed(2)} (${Math.floor(pct)}%) · E eject`, tipColor);
       return;
     }
     const boarding = sim.passengers.some((p) => p.state === 'walking' && p.taxiId === t.id);
@@ -571,7 +575,7 @@ export class Hud {
     if (boarding) {
       set(this.jobText, 'PASSENGER BOARDING…', HUD_COLORS.good);
     } else if (waiting) {
-      set(this.jobText, `PICK UP AT PAD ${pads[waiting.padIndex]!.label}`, HUD_COLORS.good);
+      set(this.jobText, pads[waiting.padIndex] ? `PICK UP AT PAD ${pads[waiting.padIndex]!.label}` : `PICK UP ${waiting.person.name} ON LEDGE`, HUD_COLORS.good);
     } else {
       set(this.jobText, 'WAITING FOR A FARE…', HUD_COLORS.dim);
     }
@@ -626,12 +630,13 @@ export class Hud {
   /**
    * Teleport dialog, shown while the player is parked on a teleport pad: the other locales,
    * with what they pay and how busy they are. Non-modal (the world keeps running). Travel is
-   * free but needs an empty cab.
+   * free and can include a passenger.
    */
   updateTeleport(
     open: boolean,
     destinations: readonly LocaleInfo[],
-    riding: boolean,
+    boarding: boolean,
+    rider: Passenger | undefined,
     onPick: (localeId: string) => void,
   ): void {
     if (!open) {
@@ -653,12 +658,13 @@ export class Hud {
       const line =
         `[${i + 1}] ${d.name.toUpperCase().padEnd(18)} x${d.fareMultiplier.toFixed(2)}  ` +
         `${d.size}x · ${d.waiting} WAIT · ${d.taxis} TAXI${d.taxis === 1 ? '' : 'S'}`;
-      panel.rows[i]!.setRow(line, riding ? C64.disabled : C64.text, !riding);
+      const wanted = rider?.destination.localeId === d.id;
+      panel.rows[i]!.setRow(line, boarding ? C64.disabled : wanted ? C64.good : C64.text, !boarding);
     });
     set(
       panel.note,
-      riding ? 'DROP OFF YOUR PASSENGER FIRST: NEED AN EMPTY CAB' : 'FREE TRAVEL · YOU KEEP EVERYTHING YOU HAVE',
-      riding ? C64.accent : C64.good,
+      boarding ? 'PASSENGER BOARDING' : rider ? 'PASSENGER REQUEST: ' + localeName(rider.destination.localeId).toUpperCase() : 'FREE TRAVEL · YOU KEEP EVERYTHING YOU HAVE',
+      boarding ? C64.accent : C64.good,
     );
   }
 

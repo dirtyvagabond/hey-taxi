@@ -41,6 +41,7 @@ export const Input = {
   BUY_FILL: 2048,
   /** Summon the flying convenience service while parked away from a store. */
   SUMMON_SERVICE: 4096,
+  EJECT: 8192,
 } as const;
 
 export const EPS = 1e-6;

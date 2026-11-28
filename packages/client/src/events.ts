@@ -7,6 +7,8 @@ import {
   landingMaxVy,
   personalityArchetype,
   riderOf,
+  needsTransfer,
+  localeName,
   TAXI,
   type CrashReason,
   type Passenger,
@@ -502,9 +504,29 @@ export class EventPresenter {
         if (!p || !destPad) break;
         const mine = this.isPlayer(e.taxiId);
         if (mine) sound.board();
-        const line = pickLine('board', destPad.label);
+        const line = needsTransfer(sim, p) ? localeName(p.destination.localeId) + ', please!' : pickLine('board', destPad.label);
         passengers.say(`p${p.id}`, line, p.kind, this.aboveTaxi(e.taxiId));
         if (this.isRelevantTaxi(e.taxiId)) this.ctx.speakPassenger(line, p.kind, p.id, 'board');
+        break;
+      }
+      case 'passengerDied':
+        passengers.float(e.x, e.y - 25, 'PASSENGER LOST', HUD_COLORS.bad);
+        break;
+      case 'passengerRemark': {
+        const p = this.passenger(e.passengerId);
+        if (!p || !this.ctx.isPassengerOnScreen(p)) break;
+        const label = pads[p.destPadIndex]?.label;
+        const request = needsTransfer(sim, p) ? localeName(p.destination.localeId) : 'pad ' + label;
+        const line = {
+          detour: 'Wrong city! Let me out at pad ' + label + '!',
+          arrival: 'Pad ' + label + ', please!',
+          ejected: 'Hey! I was still in there!',
+          refused: 'I just got out of your cab for a reason.',
+          stranded: 'Taxi! I still need ' + request + '!',
+          landed: 'Some driver! I had to land myself!',
+        }[e.reason];
+        passengers.say(`p${p.id}`, line, p.kind, p.state === 'riding' ? this.aboveTaxi(p.taxiId!) : () => passengers.headOf(this.passenger(p.id) ?? p));
+        this.ctx.speakPassenger(line, p.kind, p.id, e.reason === 'arrival' ? 'board' : 'annoyed');
         break;
       }
       case 'passengerAnnoyed': {
@@ -553,7 +575,9 @@ export class EventPresenter {
         const p = this.passenger(e.passengerId);
         if (p) {
           const destLabel = pads[p.destPadIndex]?.label ?? '';
-          const line = this.pickUniqueLine(p.id, 'wrongPad', destLabel);
+          const line = needsTransfer(sim, p)
+            ? `Wrong stop! Take me to ${localeName(p.destination.localeId)}!`
+            : this.pickUniqueLine(p.id, 'wrongPad', destLabel);
           if (line) {
             passengers.say(`p${p.id}`, line, p.kind, this.aboveTaxi(e.taxiId), 1.8);
             if (this.isRelevantTaxi(e.taxiId)) this.ctx.speakPassenger(line, p.kind, p.id, 'wrongPad');

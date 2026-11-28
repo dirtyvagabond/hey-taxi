@@ -261,7 +261,8 @@ export class GameHost {
       case 'teleport': {
         const result = this.session.teleport(String(msg.localeId));
         const why: Record<string, [string, string]> = {
-          occupied: ['TELEPORT LOCKED', 'Drop off your passenger first: teleports need an empty cab'],
+          occupied: ['TELEPORT LOCKED', 'Wait for the passenger to finish boarding'],
+          unqualified: ['TELEPORT LOCKED', 'This pilot cannot travel to that locale'],
           blocked: ['ARRIVAL PAD BUSY', 'Every arrival spot there is taken. Try again in a moment'],
           notAtTeleport: ['NOT ON A TELEPORT', 'Land on a teleport pad first'],
         };

@@ -5,7 +5,8 @@ import { envForceAt, stepEnvironment, type Meteor } from './env';
 import { boxHitsSolid, isSolid, padIndexAt, tileSpan, type Level } from './level';
 import { npcInput, stepNpcMemory, type AiState } from './ai';
 import { buy, deployFlares, fillUp, fireMissile, stepMissiles, type Decoy, type Missile } from './missiles';
-import { stepPassengers } from './passengers';
+import { ejectPassenger } from './passenger-flight';
+import { releaseBoardingPassengers, stepPassengers } from './passengers';
 import { newCoPilot, stepCoPilots, type CoPilot } from './copilot';
 import { rollPersonality, type Personality } from './personality';
 import { nextRandom } from './rng';
@@ -47,6 +48,9 @@ export interface Taxi {
   thrust: number;
   /** Input bits from the previous tick, for press detection. */
   prevInput: number;
+  /** Persistent pilot account, or the taxi id for rivals. */
+  driverId?: string;
+  qualifiedLocales?: string[];
   /** Ticks until a rival that hasn't arrived yet (offstage) arrives. */
   respawnTicks: number;
   crashes: number;
@@ -119,11 +123,31 @@ export function isActive(t: Taxi): boolean {
  * waiting – standing on their pad, hailing
  * walking – walking to a taxi that landed on their pad
  * riding  – inside a taxi (position follows the taxi)
- * leaving – delivered; walking off, removed when leaveTicks runs out
+ * leaving – walking off to rest after reaching the intended destination
+ * hopping / parachuting – outside the cab after ejection, subject to local forces
  */
-export type PassengerState = 'waiting' | 'walking' | 'riding' | 'leaving';
+export type PassengerState = 'waiting' | 'walking' | 'riding' | 'leaving' | 'parachuting' | 'hopping';
+
+export interface Resident {
+  id: string;
+  name: string;
+  originLocale: string;
+  kind: number;
+  voiceSeed: number;
+  rides: number;
+}
 
 export interface Passenger {
+  person: Resident;
+  /** The agreed destination survives changes to the local navigation target. */
+  destination: { localeId: string; padIndex: number; arrivalDistance: number };
+  temporaryStop: boolean;
+  refusedDrivers: string[];
+  refusalHeard: string[];
+  /** Brief grace after ejection so the ejecting cab does not immediately run over the passenger. */
+  ejectGraceTicks?: number;
+  vx: number;
+  vy: number;
   id: number;
   /** Appearance/voice variant, 0–3. */
   kind: number;
@@ -185,6 +209,8 @@ export interface SimState {
   /** Level finished; step() does nothing more. */
   complete: boolean;
   nextPassengerId: number;
+  localeId?: string;
+  resting?: { person: Resident; padIndex: number }[];
   /** Ticks until the next passenger may spawn (counts down only while below the passenger cap). */
   passengerSpawnTicks: number;
   /** Events produced outside a tick (e.g. opening balances at creation), emitted by the next step. */
@@ -211,6 +237,8 @@ export type SimEvent =
   /** Gear-down skids bumped a ledge sideways (no crash). */
   | { type: 'skidBump'; taxiId: string }
   | { type: 'passengerSpawned'; passengerId: number; padIndex: number }
+  | { type: 'passengerDied'; passengerId: number; x: number; y: number }
+  | { type: 'passengerRemark'; passengerId: number; reason: 'detour' | 'arrival' | 'ejected' | 'refused' | 'stranded' | 'landed' }
   | { type: 'passengerBoarded'; passengerId: number; taxiId: string; destPadIndex: number }
   /** The taxi took off while the passenger was walking to it. */
   | { type: 'passengerAnnoyed'; passengerId: number }
@@ -435,7 +463,7 @@ export function rivalIds(level: Level): string[] {
 
 /** Full reset: spawn position, fuel, hull, ammo, crash and fare counts. Any rider is dropped. */
 export function resetTaxi(state: SimState, taxi: Taxi): void {
-  state.passengers = state.passengers.filter((p) => p.taxiId !== taxi.id || p.state === 'leaving');
+  releaseBoardingPassengers(state, taxi);
   taxi.passengerId = -1;
   respawn(state, taxi);
   taxi.fuel = state.config.fuelMax;
@@ -453,7 +481,7 @@ export function resetTaxi(state: SimState, taxi: Taxi): void {
  * and returns the events that happened during the tick.
  * `inputs` maps taxi id → Input bitfield (held buttons). Missing ids mean no input.
  */
-export function step(state: SimState, inputs: Readonly<Record<string, number>>): SimEvent[] {
+export function step(state: SimState, inputs: Readonly<Record<string, number>>, allowNewResident = true): SimEvent[] {
   const events: SimEvent[] = state.pending.splice(0);
   if (state.complete) return events;
   for (const taxi of state.taxis) {
@@ -468,7 +496,7 @@ export function step(state: SimState, inputs: Readonly<Record<string, number>>):
   });
   stepCoPilots(state, events); // automatic flares, after the pilots' own inputs
   stepMissiles(state, events);
-  stepPassengers(state, events);
+  stepPassengers(state, events, allowNewResident);
   stepServiceCrafts(state, events);
   stepNpcMemory(state, events);
   checkExit(state, events);
@@ -602,6 +630,7 @@ function stepTaxi(s: SimState, t: Taxi, input: number, ev: SimEvent[]): void {
     return;
   }
   faceFor(t, input);
+  if (pressed & Input.EJECT) ejectPassenger(s, t, ev);
 
   // Landing gear: can't be toggled while resting on it.
   if (pressed & Input.FIRE) fireMissile(s, t, ev);

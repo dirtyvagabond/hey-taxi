@@ -83,6 +83,8 @@ export interface SimConfig {
   passengerSpawnDelay: number;
   /** Passenger walking speed (u/s). */
   walkSpeed: number;
+  interlocaleChance: number;
+  residentLimit: number;
   /** Fare = baseFare + farePerDistance × straight-line distance between pads. */
   baseFare: number;
   farePerDistance: number;
@@ -208,6 +210,8 @@ export const DEFAULT_CONFIG: Readonly<SimConfig> = Object.freeze({
   firstPassengerDelay: 1,
   passengerSpawnDelay: 2,
   walkSpeed: 70,
+  interlocaleChance: 0.1,
+  residentLimit: 160,
   // Raised 20% (was $5 + $0.010/u), 2026-11-24.
   baseFare: 6,
   farePerDistance: 0.012,

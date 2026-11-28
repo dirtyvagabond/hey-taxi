@@ -43,7 +43,7 @@ import type {
 import { World, WORLD_LEVELS, WorldContentError, type SavedWorld, type TeleportResult } from './world';
 
 /** Bump when GameSave's shape changes; older saves are reported as unsupported. */
-export const SAVE_VERSION = 9;
+export const SAVE_VERSION = 10;
 
 /** After the player's taxi is destroyed the world runs this long (the explosion plays out), then the card appears. */
 const DEATH_SECONDS = 2;
@@ -734,7 +734,7 @@ export class GameSession {
   }
 
   /**
-   * The player, parked on a teleport pad, travels to another locale (free; empty cab only).
+   * The player, parked on a teleport pad, travels to another locale for free.
    * Returns why not, if it didn't happen.
    */
   teleport(localeId: string): TeleportResult | 'notPlaying' {
@@ -800,7 +800,7 @@ export class GameSession {
    * from an unsupported version or its contents don't add up; nothing is changed in that case.
    */
   restore(save: GameSave, entries: LedgerEntry[]): void {
-    if (save.saveVersion !== SAVE_VERSION) {
+    if (save.saveVersion !== 9 && save.saveVersion !== SAVE_VERSION) {
       throw new SaveError(`saved by an unsupported version (save format ${save.saveVersion})`, 'unsupported');
     }
     const config = { ...DEFAULT_CONFIG, ...save.config };
@@ -1101,6 +1101,6 @@ export class GameSession {
 
 /** The sim as sent to the browser: no level geometry, config or AI memory. */
 export function wireSim(sim: SimState, levelId: string): WireSim {
-  const { level: _level, config: _config, taxis, ...rest } = sim;
+  const { level: _level, config: _config, resting: _resting, taxis, ...rest } = sim;
   return { ...rest, levelId, taxis: taxis.map((t) => ({ ...t, ai: null })) };
 }

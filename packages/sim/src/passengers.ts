@@ -1,6 +1,8 @@
 import { post, toCents } from './accounts';
 import { DT, TAXI, TICK_RATE } from './constants';
 import type { Pad } from './level';
+import { acceptsDriver, canBoardHere, needsTransfer, newResident, setJourneyTarget, walkable } from './journeys';
+import { stepPassengerFlight } from './passenger-flight';
 import { nextRandom } from './rng';
 import { isActive, type Passenger, type SimEvent, type SimState, type Taxi } from './sim';
 
@@ -19,16 +21,17 @@ const DOOR_GAP = 2;
 const SPAWN_CLEARANCE = 12;
 
 /** Advance all passengers one tick. Runs after the taxis have moved; `ev` holds this tick's taxi events. */
-export function stepPassengers(s: SimState, ev: SimEvent[]): void {
+export function stepPassengers(s: SimState, ev: SimEvent[], allowNewResident = true): void {
   const removed = new Set<Passenger>();
   applyTaxiEvents(s, ev.slice(), ev, removed);
   for (const p of s.passengers) {
+    if (p.ejectGraceTicks) p.ejectGraceTicks--;
     if (p.state === 'waiting') p.waitTicks++;
     if (!removed.has(p)) updatePassenger(s, p, ev, removed);
   }
   checkHits(s, ev, removed);
   if (removed.size) s.passengers = s.passengers.filter((p) => !removed.has(p));
-  spawn(s, ev);
+  if (allowNewResident || s.resting?.length) spawn(s, ev);
 }
 
 /** Put a passenger on a pad directly (tests, scripted levels). Does not emit an event. */
@@ -37,9 +40,15 @@ export function spawnPassenger(
   o: { padIndex: number; destPadIndex: number; x: number; kind?: number },
 ): Passenger {
   const pad = s.level.pads[o.padIndex]!;
+  const id = s.nextPassengerId++;
+  const locale = s.localeId ?? s.level.name;
+  const pool = s.resting;
+  const samePad = pool?.findIndex(r => r.padIndex === o.padIndex) ?? -1;
+  const resident = pool?.splice(Math.max(0, samePad), 1)[0]?.person ?? newResident(locale, id, o.kind ?? 0);
   const p: Passenger = {
-    id: s.nextPassengerId++,
-    kind: o.kind ?? 0,
+    id, person: resident, destination: { localeId: locale, padIndex: o.destPadIndex, arrivalDistance: 0 },
+    temporaryStop: false, refusedDrivers: [], refusalHeard: [], vx: 0, vy: 0,
+    kind: resident.kind,
     state: 'waiting',
     padIndex: o.padIndex,
     destPadIndex: o.destPadIndex,
@@ -72,7 +81,7 @@ function applyTaxiEvents(s: SimState, taxiEvents: SimEvent[], ev: SimEvent[], re
   for (const e of taxiEvents) {
     if (e.type !== 'landed') continue;
     const p = riderOf(s, e.taxiId);
-    if (p && e.padIndex !== p.destPadIndex) wrongLanded.add(e.taxiId);
+    if (p && !requestedStop(s, p, e.padIndex)) wrongLanded.add(e.taxiId);
   }
   for (const e of taxiEvents) {
     if (e.type === 'taxiDamaged') {
@@ -106,7 +115,7 @@ function applyTaxiEvents(s: SimState, taxiEvents: SimEvent[], ev: SimEvent[], re
       ev.push({ type: 'passengerLost', passengerId: p.id, taxiId: e.taxiId });
     } else if (e.type === 'skidBump') {
       loseTip(s, p, c.tipCutBump, 'bump', ev);
-    } else if (e.padIndex !== p.destPadIndex) {
+    } else if (!requestedStop(s, p, e.padIndex)) {
       forfeitTip(s, p, ev);
       ev.push({ type: 'wrongLanding', passengerId: p.id, taxiId: e.taxiId, padIndex: e.padIndex });
     } else if (e.rating === 'rough') {
@@ -115,6 +124,10 @@ function applyTaxiEvents(s: SimState, taxiEvents: SimEvent[], ev: SimEvent[], re
       loseTip(s, p, c.tipCutOk, 'okLanding', ev);
     }
   }
+}
+
+function requestedStop(s: SimState, p: Passenger, padIndex: number): boolean {
+  return padIndex === p.destPadIndex || (s.level.pads[padIndex]?.kind === 'teleport' && needsTransfer(s, p));
 }
 
 /** Landing anywhere other than the destination forfeits the entire tip (no early bonus can rescue it). */
@@ -184,8 +197,33 @@ function updatePassenger(s: SimState, p: Passenger, ev: SimEvent[], removed: Set
   const c = s.config;
   const stepLen = c.walkSpeed * DT;
   switch (p.state) {
+    case 'parachuting':
+    case 'hopping':
+      if (!stepPassengerFlight(s, p, ev)) {
+        removed.add(p);
+        ev.push({ type: 'passengerDied', passengerId: p.id, x: p.x, y: p.y });
+      }
+      break;
     case 'waiting': {
-      const taxi = s.taxis.find((t) => t.status === 'landed' && t.padIndex === p.padIndex && t.passengerId < 0);
+      if (p.leaveTicks > 0) {
+        // After a low ejection, take a few steps away from the door before hailing again.
+        const next = p.x + p.dir * stepLen;
+        const pad = s.level.pads[p.padIndex];
+        if ((!pad || (next >= pad.x + PASSENGER.halfW && next <= pad.x + pad.w - PASSENGER.halfW)) &&
+            walkable(s, p.x, next, p.y)) p.x = next;
+        p.leaveTicks--;
+        break;
+      }
+      let taxi: Taxi | undefined;
+      for (const t of s.taxis) {
+        if (!canBoardHere(s, p, t)) continue;
+        if (acceptsDriver(s, p, t)) { taxi ??= t; continue; }
+        const driver = t.driverId ?? t.id;
+        if (p.refusedDrivers.includes(driver) && !p.refusalHeard.includes(driver)) {
+          p.refusalHeard.push(driver);
+          ev.push({ type: 'passengerRemark', passengerId: p.id, reason: 'refused' });
+        }
+      }
       if (taxi) {
         p.state = 'walking';
         p.taxiId = taxi.id;
@@ -194,7 +232,7 @@ function updatePassenger(s: SimState, p: Passenger, ev: SimEvent[], removed: Set
     }
     case 'walking': {
       const taxi = taxiById(s, p.taxiId);
-      if (!taxi || taxi.status !== 'landed' || taxi.padIndex !== p.padIndex || taxi.passengerId >= 0) {
+      if (!taxi || !canBoardHere(s, p, taxi) || !acceptsDriver(s, p, taxi)) {
         p.state = 'waiting';
         p.taxiId = null;
         p.annoyance++;
@@ -214,18 +252,28 @@ function updatePassenger(s: SimState, p: Passenger, ev: SimEvent[], removed: Set
     }
     case 'riding': {
       const taxi = taxiById(s, p.taxiId)!;
+      // Self-destruct can occur after the locale's passenger step.
+      if (taxi.status === 'destroyed') {
+        removed.add(p);
+        taxi.passengerId = -1;
+        ev.push({ type: 'passengerLost', passengerId: p.id, taxiId: taxi.id });
+        break;
+      }
       p.x = taxi.x;
       p.y = taxi.y;
       ensureRideFields(s, p);
       p.rideTicks++;
       if (p.rideTicks === p.dueTicks + 1) ev.push({ type: 'rideLate', passengerId: p.id, taxiId: taxi.id });
       updateTip(s, p);
-      if (taxi.status === 'landed' && taxi.padIndex === p.destPadIndex) deliver(s, p, taxi, ev);
+      if (taxi.status === 'landed' && taxi.padIndex === p.destPadIndex && !needsTransfer(s, p)) deliver(s, p, taxi, ev);
       break;
     }
     case 'leaving': {
-      p.x += p.dir * stepLen;
-      if (--p.leaveTicks <= 0) removed.add(p);
+      if (walkable(s, p.x, p.x + p.dir * stepLen, p.y)) p.x += p.dir * stepLen;
+      if (--p.leaveTicks <= 0) {
+        if (s.localeId) (s.resting ??= []).push({ person: p.person, padIndex: p.padIndex });
+        removed.add(p);
+      }
       break;
     }
   }
@@ -233,17 +281,20 @@ function updatePassenger(s: SimState, p: Passenger, ev: SimEvent[], removed: Set
 
 function board(s: SimState, p: Passenger, taxi: Taxi, ev: SimEvent[]): void {
   const c = s.config;
-  const from = s.level.pads[p.padIndex]!;
+  const from = s.level.pads[p.padIndex] ?? { x: p.x, y: p.y, w: 0 };
   const to = s.level.pads[p.destPadIndex]!;
+  const distance = padDistance(from, to) + (needsTransfer(s, p) ? p.destination.arrivalDistance : 0);
+  p.tipForfeited = false;
+  p.person.rides++;
   p.state = 'riding';
   p.x = taxi.x;
   p.y = taxi.y;
   // The locale's multiplier applies to the distance-based base fare, rounded to cents.
-  p.fare = round2((c.baseFare + c.farePerDistance * padDistance(from, to)) * s.level.fareMultiplier);
+  p.fare = round2((c.baseFare + c.farePerDistance * distance) * s.level.fareMultiplier);
   // The tip: a percentage of the fare, less a cut for each time they were left behind.
   p.tipCuts = Math.min(c.tipPercent, p.annoyance * c.tipCutAnnoyed);
   p.rideTicks = 0;
-  p.dueTicks = dueTicksFor(s, from, to);
+  p.dueTicks = Math.round((c.tripAllowance + distance / c.tripPace) * TICK_RATE);
   p.jostled = false;
   updateTip(s, p);
   taxi.passengerId = p.id;
@@ -260,6 +311,21 @@ function deliver(s: SimState, p: Passenger, taxi: Taxi, ev: SimEvent[]): void {
   p.x = taxi.x + p.dir * (TAXI.halfW + DOOR_GAP + PASSENGER.halfW);
   p.y = pad.y;
   p.leaveTicks = Math.round(LEAVE_SECONDS * TICK_RATE);
+  if (p.temporaryStop) {
+    // The requested curb in an unwanted city ends this ride, but not the journey.
+    const driver = taxi.driverId ?? taxi.id;
+    if (!p.refusedDrivers.includes(driver)) p.refusedDrivers.push(driver);
+    if (!p.refusalHeard.includes(driver)) p.refusalHeard.push(driver);
+    taxi.passengerId = -1;
+    p.taxiId = null;
+    p.state = 'waiting';
+    p.leaveTicks = Math.round(0.35 * TICK_RATE);
+    p.waitTicks = p.annoyance = 0;
+    p.fare = p.tip = p.tipPercent = 0;
+    setJourneyTarget(s, p);
+    ev.push({ type: 'passengerRemark', passengerId: p.id, reason: 'stranded' });
+    return;
+  }
   // Arriving early earns a bonus (up to tipPercentMax in all), unless the tip was forfeited.
   const c = s.config;
   const service = servicePercent(s, p);
@@ -284,22 +350,33 @@ function deliver(s: SimState, p: Passenger, taxi: Taxi, ev: SimEvent[]): void {
     smooth: !p.jostled,
     late: p.rideTicks > p.dueTicks,
   });
-  post(s, taxi, 'fare', fareCents, `passenger:${p.id}`, ev);
-  if (tipCents > 0) post(s, taxi, 'tip', tipCents, `passenger:${p.id}`, ev);
+  post(s, taxi, 'fare', fareCents, residentRef(p), ev);
+  if (tipCents > 0) post(s, taxi, 'tip', tipCents, residentRef(p), ev);
   taxi.fares++;
   if (!taxi.npc) s.faresDelivered++;
 }
 
-/** A taxi touching a waiting or walking passenger knocks them over. */
+/** Relative speed (u/s) above which hitting an airborne passenger is fatal rather than a gentle bump. */
+const AIRBORNE_HIT_SPEED = 95;
+
+/** A taxi touching a waiting, walking, or airborne passenger knocks them over (slow aerial brushes bump them aside). */
 function checkHits(s: SimState, ev: SimEvent[], removed: Set<Passenger>): void {
   for (const p of s.passengers) {
-    if (removed.has(p) || (p.state !== 'waiting' && p.state !== 'walking')) continue;
+    const airborne = p.state === 'parachuting' || p.state === 'hopping';
+    if (removed.has(p) || (!airborne && p.state !== 'waiting' && p.state !== 'walking')) continue;
     for (const t of s.taxis) {
       if (!isActive(t) || !touches(t, p)) continue;
+      if (p.ejectGraceTicks && p.refusedDrivers.includes(t.driverId ?? t.id)) continue;
+      if (airborne && Math.hypot(t.vx - p.vx, t.vy - p.vy) <= AIRBORNE_HIT_SPEED) {
+        const pushDir = p.x < t.x ? -1 : 1;
+        p.vx = t.vx * 0.6 + pushDir * 45;
+        p.vy = Math.min(p.vy, t.vy * 0.5 - 20);
+        continue;
+      }
       removed.add(p);
       const penalty = toCents(s.config.hitPenalty);
       ev.push({ type: 'passengerHit', passengerId: p.id, taxiId: t.id, x: p.x, y: p.y, penalty: penalty / 100 });
-      post(s, t, 'passengerHit', -penalty, `passenger:${p.id}`, ev);
+      post(s, t, 'passengerHit', -penalty, residentRef(p), ev);
       break;
     }
   }
@@ -363,7 +440,8 @@ function spawnRandom(s: SimState): Passenger | null {
     (pads.length >= 3 && s.taxis.some((t) => t.status === 'landed' && t.padIndex === pad.index));
   const origins = pads.filter((pad) => !busy(pad));
   if (!origins.length) return null;
-  const origin = pick(s, origins);
+  const restingPads = s.resting?.length ? origins.filter(pad => s.resting!.some(r => r.padIndex === pad.index)) : [];
+  const origin = pick(s, restingPads.length ? restingPads : origins);
   const dest = pick(
     s,
     pads.filter((pad) => pad !== origin),
@@ -398,10 +476,32 @@ function taxiById(s: SimState, id: string | null): Taxi | undefined {
   return id === null ? undefined : s.taxis.find((t) => t.id === id);
 }
 
-function padDistance(a: Pad, b: Pad): number {
+function padDistance(a: Pick<Pad, 'x' | 'w' | 'y'>, b: Pad): number {
   return Math.hypot(a.x + a.w / 2 - (b.x + b.w / 2), a.y - b.y);
 }
 
 function round2(v: number): number {
   return Math.round(v * 100) / 100;
+}
+
+/** Return riders to a valid pickup when a cab is stashed or reset. */
+export function releaseBoardingPassengers(s: SimState, t: Taxi): void {
+  for (const p of s.passengers) {
+    if (p.taxiId !== t.id || (p.state !== 'walking' && p.state !== 'riding')) continue;
+    if (p.state === 'riding') {
+      const pad = s.level.pads[p.padIndex] ?? s.level.pads.find(q => q.kind === 'pad')!;
+      p.padIndex = pad.index;
+      p.x = pad.x + PAD_MARGIN;
+      p.y = pad.y;
+    }
+    p.state = 'waiting';
+    p.taxiId = null;
+    p.waitTicks = p.annoyance = 0;
+    setJourneyTarget(s, p);
+  }
+  t.passengerId = -1;
+}
+
+function residentRef(p: Passenger): string {
+  return `resident:${p.person.id}:${p.person.rides}:${p.person.name}`;
 }

@@ -1,4 +1,4 @@
-import { DEFAULT_CONFIG, targetable } from '@hey-taxi/sim';
+import { DEFAULT_CONFIG, spawnPassenger, targetable } from '@hey-taxi/sim';
 import { describe, expect, it } from 'vitest';
 import { decode, encode } from '../src/codec';
 import { GameSession, type GameSave } from '../src/session';
@@ -45,28 +45,13 @@ describe('teleports', () => {
     expect(s.mode).toBe('playing');
   });
 
-  it('refuses off a teleport pad, or with a passenger aboard, and changes nothing', () => {
+  it('refuses off a teleport pad or during boarding, with no partial transfer', () => {
     const s = startedSession(3);
-    play(s, 60);
     expect(s.teleport(WORLD_LEVELS[1])).toBe('notAtTeleport');
     parkOnTeleport(s.sim, s.player!);
-    s.sim.passengers.push({
-      id: 999,
-      kind: 0,
-      state: 'riding',
-      padIndex: 0,
-      destPadIndex: 1,
-      x: s.player!.x,
-      y: s.player!.y,
-      dir: 1,
-      taxiId: s.playerId,
-      fare: 10,
-      tip: 5,
-      annoyance: 0,
-      leaveTicks: 0,
-      waitTicks: 0,
-    } as never);
-    s.player!.passengerId = 999;
+    const p = spawnPassenger(s.sim, { padIndex: s.player!.padIndex, destPadIndex: 0, x: s.player!.x + 40 });
+    p.state = 'walking';
+    p.taxiId = s.playerId;
     const before = s.ledger.entries.length;
     expect(s.teleport(WORLD_LEVELS[1])).toBe('occupied');
     expect(s.levelId).toBe(WORLD_LEVELS[0]);

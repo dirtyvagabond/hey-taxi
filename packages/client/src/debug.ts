@@ -131,6 +131,8 @@ export function createDebugPanel(config: SimConfig, opts: DebugOptions, hooks: D
   const world = gui.addFolder('Rivals & demand');
   world.add(config, 'rivalsMaxWorld', 0, 48, 1).name('Max rivals (world)');
   world.add(config, 'rivalsMaxPerLocale', 0, 10, 1).name('Max rivals (per locale)');
+  world.add(config, 'residentLimit', 32, 512, 1).name('Resident population limit');
+  world.add(config, 'interlocaleChance', 0, 1, 0.01).name('Interlocale trip chance');
   world.add(config, 'demandShortage', 1, 6, 1).name('Shortage: passengers');
   world.add(config, 'demandWaitSeconds', 5, 120, 1).name('Shortage: waited (s)');
   world.add(config, 'dispatchTimeoutSeconds', 10, 180, 1).name('Dispatch reserve (s)');

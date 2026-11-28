@@ -12,3 +12,4 @@ export * from './accounts';
 export * from './copilot';
 export * from './personality';
 export * from './service';
+export * from './journeys';

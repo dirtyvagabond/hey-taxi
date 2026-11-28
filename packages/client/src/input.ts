@@ -12,6 +12,7 @@ const BINDINGS: Record<string, number> = {
   Space: Input.GEAR,
   KeyF: Input.FIRE,
   KeyC: Input.FLARE,
+  KeyE: Input.EJECT,
   Digit1: Input.BUY_MISSILE,
   Numpad1: Input.BUY_MISSILE,
   Digit2: Input.BUY_FLARE,

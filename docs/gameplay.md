@@ -25,7 +25,7 @@ All eight locales exist and simulate simultaneously — even the ones you aren't
 
 ### Teleports
 
-Violet teleport pads connect all eight locales for free. Land on a teleport with an empty cab and choose any destination (`1`–`7` or click). The panel shows each locale's fare multiplier, size, waiting passengers, and active taxis. Taxis parked on a teleport cannot be targeted by missiles.
+Violet teleport pads connect all eight locales for free. Land on a teleport and choose any destination (`1`–`7` or click). The panel shows each locale's fare multiplier, size, waiting passengers, and active taxis. Taxis parked on a teleport cannot be targeted by missiles.
 
 ## Flight, landing gear, and fuel
 
@@ -42,12 +42,18 @@ Violet teleport pads connect all eight locales for free. Land on a teleport with
 
 ## Passengers, fares, and tips
 
+Each resident has a permanent name, appearance, voice and home locale. Delivered passengers rest in their arrival locale and can hail again. Death is permanent.
+
 Passengers wave from glowing pads. Land beside them (not on top of them) and they walk over and board, naming their destination pad.
 
 - **Fares** scale with trip distance and the locale's fare multiplier.
 - **Tips** are a percentage of the fare (baseline **20%** for a smooth, on-time ride, up to **25%** for arriving early).
   - Late arrivals lose 0.5 percentage points per second past the allowance.
   - Service penalties deduct percentage points: ok landing (−2), rough landing (−5), hard landing (−8), bump (−3), hull damage (−5), or taking off while the passenger is walking to board (−3).
+
+Some passengers ask for another locale. Fly to a violet teleport and choose the requested city. The passenger announces their pad on arrival. A detour costs the tip. In an unwanted city, the passenger requests a temporary drop-off. Return to their intended locale while they are still aboard and they ask for the original pad again. If they get out at the temporary stop, they hail for the rest of their journey.
+
+Press **E** to eject your passenger. A passenger close to safe ground hops out. In the air they open a parachute and steer toward their target while wind, gravity and hazards affect them. Ejection always pays zero. A survivor who lands short hails again and refuses the ejecting driver for the rest of this journey, even in a replacement cab. A different driver earns a fare for the remaining route and can earn a fresh tip. Rivals can eject riders in a flight emergency.
 
 ## Combat, damage, and co-pilots
 

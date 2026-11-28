@@ -10,6 +10,9 @@ import {
   isActive,
   levelById,
   levelByName,
+  localeName,
+  needsTransfer,
+  canTravel,
   parseLevel,
   riderOf,
   sideThrustAvailable,
@@ -99,7 +102,7 @@ class Game {
   private sound = new Sound();
   private guides = new Guides();
   private passengers = new PassengerLayer(
-    (_p, firstSight) => (firstSight && Math.random() < 0.45 ? 'Hey, taxi!' : pickLine('hail')),
+    (p, firstSight) => needsTransfer(this.sim, p) ? localeName(p.destination.localeId) + ', please!' : (firstSight && Math.random() < 0.45 ? 'Hey, taxi!' : pickLine('hail')),
     (p, line, firstSight) => this.onPassengerHail(p, line, firstSight),
   );
 
@@ -749,7 +752,7 @@ class Game {
     const { pan } = this.spatialFor(p.x, p.y);
     const gainScale = onScreen ? 1.0 : 0.55;
     this.passengers.forceHail(p, 'Hey, taxi!', onScreen);
-    if (this.sound.speak('Hey, taxi!', { kind: p.kind, passengerId: p.id, category: 'hail', priority: 'hail', pan, gainScale })) {
+    if (this.sound.speak('Hey, taxi!', { kind: p.kind, passengerId: p.person.voiceSeed, category: 'hail', priority: 'hail', pan, gainScale })) {
       this.lastSpawnCalloutAt = this.time;
       this.lastHailVoiceAt = this.time;
     }
@@ -762,7 +765,7 @@ class Game {
     const minGap = firstSight ? 1.2 : 2.5;
     if (this.time - this.lastHailVoiceAt < minGap) return;
     const gainScale = offscreenDist <= 0 ? 1.0 : 1.0 - 0.55 * (offscreenDist / 420);
-    if (this.sound.speak(line, { kind: p.kind, passengerId: p.id, category: 'hail', priority: 'hail', pan, gainScale })) {
+    if (this.sound.speak(line, { kind: p.kind, passengerId: p.person.voiceSeed, category: 'hail', priority: 'hail', pan, gainScale })) {
       this.lastHailVoiceAt = this.time;
     }
   }
@@ -771,7 +774,7 @@ class Game {
     if (this.paused || this.overview.isOpen || this.isWatchingLocale) return false;
     return this.sound.speak(text, {
       kind,
-      passengerId,
+      passengerId: this.sim.passengers.find(p => p.id === passengerId)?.person.voiceSeed ?? passengerId,
       category,
       priority: isUrgentCategory(category) ? 'urgent' : 'event',
       delay: category === 'board' ? 0.08 : 0,
@@ -1050,7 +1053,8 @@ class Game {
       this.hud.updateTeleport(
         !!player && live && !this.overview.isOpen && atTeleport(this.sim, player) && !atSvc,
         this.destinations(),
-        !!riderOf(this.sim, this.localId) || this.sim.passengers.some((p) => p.state === 'walking' && p.taxiId === this.localId),
+        this.sim.passengers.some((p) => p.state === 'walking' && p.taxiId === this.localId),
+        riderOf(this.sim, this.localId),
         (localeId) => this.conn.send({ t: 'teleport', localeId }),
       );
     }
@@ -1229,7 +1233,8 @@ class Game {
   }
 
   private destinations() {
-    return (this.status?.locales ?? []).filter((l) => !l.here);
+    const taxi = this.taxiById(this.localId);
+    return (this.status?.locales ?? []).filter((l) => !l.here && (!taxi || canTravel(taxi, l.id)));
   }
 
   private sideJetHint(bits: number): void {
@@ -1272,7 +1277,9 @@ class Game {
     const rider = riderOf(this.sim, t.id);
     if (rider) return padTarget(rider.destPadIndex, GUIDE_COLORS.dropoff);
     const waiting = nearestWaiting(this.sim, t);
-    return waiting ? padTarget(waiting.padIndex, GUIDE_COLORS.pickup) : null;
+    if (!waiting) return null;
+    return padTarget(waiting.padIndex, GUIDE_COLORS.pickup) ??
+      { x: waiting.x - 20, y: waiting.y, w: 40, label: waiting.person.name, color: GUIDE_COLORS.pickup };
   }
 
   private drawHitboxes(): void {

@@ -458,3 +458,124 @@ describe('determinism with passengers', () => {
     expect(a.rng).toBe(b.rng);
   });
 });
+
+describe('passenger ejection', () => {
+  it('hops down beside a parked taxi, refuses the driver, and keeps the original pad request', () => {
+    const { s, t } = setup();
+    boardOnPad1(s, t);
+    const p = s.passengers[0]!;
+    const before = t.cents;
+    const events = run(s, 1, Input.EJECT);
+    expect(p.state).toBe('hopping');
+    const exitX = p.x;
+    events.push(...run(s, 120));
+    expect(p).toMatchObject({ state: 'waiting', taxiId: null, padIndex: PAD1, destPadIndex: PAD2 });
+    expect(Math.abs(p.x - t.x)).toBeGreaterThan(Math.abs(exitX - t.x));
+    expect(events.filter(e => e.type === 'passengerRemark' && e.reason === 'refused')).toHaveLength(1);
+    expect(t.cents).toBe(before);
+    expect(t.fares).toBe(0);
+  });
+
+  it('releases a parachute, reaches the original pad, and walks away without a fare', () => {
+    const { s, t } = setup();
+    boardOnPad1(s, t);
+    const p = s.passengers[0]!;
+    Object.assign(t, { x: 325, y: 115, status: 'flying', padIndex: -1 });
+    run(s, 1, Input.EJECT);
+    expect(p.state).toBe('parachuting');
+    t.x = 100;
+    const events = run(s, 200);
+    expect(events).toContainEqual({ type: 'passengerRemark', passengerId: p.id, reason: 'landed' });
+    expect(find(events, 'fareCompleted')).toBeUndefined();
+    expect(t.fares).toBe(0);
+  });
+
+  it('rises in inverted gravity and dies inside a gravity core', () => {
+    const { s, t } = setup();
+    boardOnPad1(s, t);
+    const p = s.passengers[0]!;
+    Object.assign(t, { x: 150, y: 100, status: 'flying', padIndex: -1 });
+    s.level.gravityZones.push({ x0: 0, y0: 0, x1: 500, y1: 280, gx: 0, gyScale: -1, label: 'Inverted' });
+    run(s, 1, Input.EJECT);
+    const initial = p.y;
+    run(s, 12);
+    expect(p.y).toBeLessThan(initial);
+    s.level.gravityWells.push({ x: p.x, y: p.y - 11, strength: 20, radius: 80, coreRadius: 30 });
+    expect(find(run(s, 1), 'passengerDied')).toBeDefined();
+    expect(s.passengers).not.toContain(p);
+    expect(s.resting ?? []).toHaveLength(0);
+  });
+
+  it('lets a rival eject a rider from a powerless airborne taxi', () => {
+    const { s, t } = setup();
+    boardOnPad1(s, t);
+    Object.assign(t, { npc: true, status: 'flying', padIndex: -1, x: 150, y: 100, fuel: 0 });
+    expect(run(s, 1)).toContainEqual(expect.objectContaining({ type: 'passengerRemark', reason: 'ejected' }));
+    expect(t.passengerId).toBe(-1);
+    expect(s.passengers[0]!.refusedDrivers).toContain(t.id);
+  });
+
+  it('parachutes cleanly when ejected gear-up near a ceiling without dying or landing in mid-air', () => {
+    const { s, t } = setup();
+    boardOnPad1(s, t);
+    const p = s.passengers[0]!;
+    // Ceiling row 0 ends at y = 40; cab roof at y = 41 leaves 2u less than passenger height (22).
+    Object.assign(t, { status: 'flying', padIndex: -1, gear: 0, gearDown: false, x: 150, y: 51, vx: 0, vy: 200 });
+    const events = run(s, 1, Input.EJECT);
+    expect(find(events, 'passengerDied')).toBeUndefined();
+    expect(p.state).toBe('parachuting');
+    expect(s.passengers).toContain(p);
+  });
+
+  it('exits behind a fast-moving cab and is not immediately run over by the ejecting taxi', () => {
+    const { s, t } = setup();
+    boardOnPad1(s, t);
+    const p = s.passengers[0]!;
+    Object.assign(t, { status: 'flying', padIndex: -1, gear: 1, gearDown: true, x: 220, y: 214, vx: 120, vy: 10, facing: 1 });
+    const events = run(s, 1, Input.EJECT);
+    expect(p.x).toBeLessThan(t.x);
+    events.push(...run(s, 15));
+    expect(find(events, 'passengerHit')).toBeUndefined();
+    expect(s.passengers).toContain(p);
+  });
+
+  it('bumps a parachutist on slow cab contact and kills them on fast impact', () => {
+    const { s, t } = setup();
+    const p = spawnPassenger(s, { padIndex: PAD1, destPadIndex: PAD2, x: 220 });
+    Object.assign(p, { state: 'parachuting', padIndex: -1, y: 150, vx: 0, vy: 40 });
+    // Slow brush (relative speed < 95): survives and gets nudged aside.
+    Object.assign(t, { status: 'flying', padIndex: -1, x: 220, y: 140, vx: 20, vy: 40 });
+    let events = run(s, 1);
+    expect(find(events, 'passengerHit')).toBeUndefined();
+    expect(s.passengers).toContain(p);
+    // Fast impact (relative speed > 95): fatal with penalty.
+    Object.assign(t, { status: 'flying', padIndex: -1, x: p.x, y: p.y - 10, vx: 180, vy: 40 });
+    events = run(s, 1);
+    expect(find(events, 'passengerHit')).toBeDefined();
+    expect(s.passengers).not.toContain(p);
+  });
+
+  it('nudges cliff-edge parachute landings onto the supporting tile so the rider stays boardable', () => {
+    const { s } = setup();
+    const p = spawnPassenger(s, { padIndex: PAD1, destPadIndex: PAD2, x: 162 });
+    // Pad 1 ends at x = 160 (y = 200); center at 162 has left foot (157) over pad 1 and center over the gap.
+    Object.assign(p, { state: 'parachuting', padIndex: -1, x: 162, y: 199, vx: 0, vy: 50 });
+    run(s, 2);
+    expect(p.state).toBe('waiting');
+    expect(p.x).toBeLessThanOrEqual(160);
+    expect(p.padIndex).toBe(PAD1);
+  });
+});
+
+it('boards a stranded passenger on unnumbered ground only when the cab shares a walkable surface', () => {
+  const { s, t } = setup();
+  const p = spawnPassenger(s, { padIndex: PAD1, destPadIndex: PAD2, x: 185 });
+  Object.assign(p, { padIndex: -1, y: 240 });
+  // The cab is close horizontally but parked on the raised pad, 40 units above.
+  run(s, 5);
+  expect(p.state).toBe('waiting');
+  Object.assign(t, { padIndex: -1, x: 232, y: 240 - TAXI.gearLength - TAXI.halfH });
+  run(s, 60);
+  expect(p.state).toBe('riding');
+  expect(p.fare).toBeGreaterThan(0);
+});

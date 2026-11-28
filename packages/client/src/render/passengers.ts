@@ -159,9 +159,9 @@ export class PassengerLayer {
       const visible = p.state !== 'riding';
       s.gfx.visible = visible;
       if (!visible) continue;
-      const walking = p.state === 'walking' || p.state === 'leaving';
+      const walking = p.state === 'walking' || p.state === 'leaving' || (p.state === 'waiting' && p.leaveTicks > 0);
       if (walking) s.phase += dt * 14;
-      if (p.state === 'waiting') {
+      if (p.state === 'waiting' && !walking) {
         if (!s.hailedInView && canFirstSightHail?.(p)) {
           s.hailedInView = true;
           s.firstSightPending = true;
@@ -179,6 +179,12 @@ export class PassengerLayer {
       const waving = p.state === 'waiting' && this.bubbles.has(`p${p.id}`);
       const waitingRing = p.state === 'waiting' ? (p.waitTicks >= 25 * 60 ? 0xffe066 : 0x6dd3ff) : null;
       drawPerson(s.gfx, p.kind, walking ? s.phase : null, waving ? this.time : null, p.dir, waitingRing, this.time + p.id * 0.7);
+      if (p.state === 'parachuting') {
+        const g = s.gfx;
+        g.moveTo(-18, -33).quadraticCurveTo(0, -57, 18, -33).closePath().fill(lookFor(p.kind).shirt);
+        g.moveTo(-18, -33).lineTo(-3, -12).moveTo(18, -33).lineTo(3, -12)
+          .moveTo(0, -33).lineTo(0, -12).stroke({ color: 0xe3edf3, width: 1.2 });
+      }
       s.gfx.position.set(p.x, p.y);
       s.gfx.alpha = p.state === 'leaving' ? Math.min(1, p.leaveTicks / (LEAVE_TICKS * 0.5)) : 1;
     }

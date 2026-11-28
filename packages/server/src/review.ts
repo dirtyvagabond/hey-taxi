@@ -151,15 +151,17 @@ export function howDestroyed(ref: string, nameOf: (taxiId: string) => string = (
 /** A readable line for a ledger entry (its category plus what triggered it). `nameOf` names taxis. */
 export function describe(e: LedgerEntry, nameOf: (taxiId: string) => string = (id) => id): string {
   const [kind, rest = ''] = e.ref.split(':', 2) as [string, string?];
+  // New entries keep the person's display name at the time of the ride; v9 used a local number.
+  const passenger = kind === 'resident' ? e.ref.split(':').at(-1)! : 'passenger #' + rest;
   switch (e.category) {
     case 'opening':
       return 'Starting funds (joined server)';
     case 'spawn':
       return 'Replacement taxi issued (account balance carried over)';
     case 'fare':
-      return `Fare, passenger #${rest}`;
+      return `Fare, ${passenger}`;
     case 'tip':
-      return `Tip, passenger #${rest}`;
+      return `Tip, ${passenger}`;
     case 'gas':
       return kind === 'service' ? 'Gas (Rescue Service)' : 'Gas';
     case 'missile':
@@ -169,7 +171,7 @@ export function describe(e: LedgerEntry, nameOf: (taxiId: string) => string = (i
     case 'repair':
       return kind === 'service' ? 'Hull repair (1 point, Rescue Service)' : 'Hull repair (1 point)';
     case 'passengerHit':
-      return `Penalty: knocked over passenger #${rest}`;
+      return `Penalty: knocked over ${passenger}`;
     case 'destroyed':
       return `Destroyed: ${howDestroyed(e.ref, nameOf)}`;
     case 'transfer': {

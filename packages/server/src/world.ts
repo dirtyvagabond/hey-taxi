@@ -14,6 +14,13 @@ import {
   aiProfile,
   atTeleport,
   createSim,
+  canTravel,
+  needsTransfer,
+  newResident,
+  nextRandom,
+  releaseBoardingPassengers,
+  riderOf,
+  setJourneyTarget,
   isActive,
   TAXI,
   levelById,
@@ -119,6 +126,7 @@ export class World {
       id,
       opts.balanceCents !== undefined ? { balanceCents: opts.balanceCents } : undefined,
     );
+    taxi.driverId = opts.accountId;
     taxi.skin = opts.skin ?? 'shortBus';
     if (opts.color !== undefined) taxi.color = opts.color;
     const displayName = opts.taxiNumber === 1 ? opts.name : `${opts.name} #${opts.taxiNumber}`;
@@ -147,19 +155,7 @@ export class World {
     const taxi = locale.sim.taxis[idx]!;
     if (!isActive(taxi)) return null;
     locale.sim.taxis.splice(idx, 1);
-    for (const p of locale.sim.passengers) {
-      if (p.taxiId === taxiId) {
-        if (p.state === 'riding' || p.state === 'walking') {
-          p.taxiId = null;
-          p.state = 'waiting';
-          const pad = locale.sim.level.pads[p.padIndex];
-          if (pad) {
-            p.x = pad.x + pad.w / 2;
-            p.y = pad.y;
-          }
-        }
-      }
-    }
+    releaseBoardingPassengers(locale.sim, taxi);
     for (const m of locale.sim.missiles) if (m.targetId === taxiId) m.targetId = null;
     taxi.passengerId = -1;
     return { localeId: rec.localeId, taxi: structuredClone(taxi) };
@@ -169,7 +165,7 @@ export class World {
   restoreTaxi(localeId: string, taxi: Taxi): void {
     const locale = this.locale(localeId);
     if (!locale.sim.taxis.some((t) => t.id === taxi.id)) {
-      locale.sim.taxis.push(structuredClone(taxi));
+      locale.sim.taxis.push({ ...structuredClone(taxi), driverId: this.taxis[taxi.id]?.accountId ?? taxi.id });
     }
     if (this.taxis[taxi.id]) this.taxis[taxi.id]!.localeId = localeId;
   }
@@ -198,6 +194,7 @@ export class World {
         npcIds,
         seed: localeSeed(gameSeed, levelId),
       });
+      sim.localeId = levelId;
       sim.config = config;
       w.locales.push({ id: levelId, version: content.version, sim });
       for (const t of sim.taxis) {
@@ -230,7 +227,43 @@ export class World {
   /** Advance every locale one tick, together. Inputs are keyed by taxi ID. */
   step(inputs: Readonly<Record<string, number>>): { locale: Locale; events: SimEvent[] }[] {
     this.tick++;
-    const results = this.locales.map((locale) => ({ locale, events: step(locale.sim, inputs) }));
+    // Resting residents count toward the limit: a crowded world can reactivate residents or replace deaths.
+    const count = (s: SimState) => s.passengers.length + (s.resting?.length ?? 0);
+    let residents = this.locales.reduce((n, l) => n + count(l.sim), 0);
+    const results = this.locales.map(locale => {
+      // If the world is at residentLimit and this locale has no resting residents left, relocate one from the fullest pool so no city starves.
+      if (residents >= this.config.residentLimit && !locale.sim.resting?.length) {
+        let donor: Locale | null = null;
+        for (const other of this.locales) {
+          if (other !== locale && (other.sim.resting?.length ?? 0) > (donor?.sim.resting?.length ?? 0)) donor = other;
+        }
+        if (donor?.sim.resting?.length) {
+          const homeIdx = donor.sim.resting.findIndex(r => r.person.originLocale === locale.id);
+          const moved = donor.sim.resting.splice(homeIdx >= 0 ? homeIdx : 0, 1)[0]!;
+          (locale.sim.resting ??= []).push({ person: moved.person, padIndex: -1 });
+        }
+      }
+      const before = count(locale.sim);
+      const events = step(locale.sim, inputs, residents < this.config.residentLimit);
+      residents += count(locale.sim) - before;
+      return { locale, events };
+    });
+    for (const { locale, events } of results) {
+      for (const e of events) {
+        if (e.type !== 'passengerSpawned' || nextRandom(locale.sim) >= this.config.interlocaleChance) continue;
+        const cities = this.locales.filter(l => l !== locale);
+        if (!cities.length) continue;
+        const to = cities[Math.floor(nextRandom(locale.sim) * cities.length)]!;
+        const pads = to.sim.level.pads.filter(p => p.kind === 'pad');
+        const arrival = to.sim.level.pads.find(p => p.kind === 'teleport');
+        const p = locale.sim.passengers.find(p => p.id === e.passengerId);
+        if (!pads.length || !arrival || !p) continue;
+        const pad = pads[Math.floor(nextRandom(locale.sim) * pads.length)]!;
+        p.destination = { localeId: to.id, padIndex: pad.index,
+          arrivalDistance: Math.hypot(pad.x + pad.w / 2 - arrival.x - arrival.w / 2, pad.y - arrival.y) };
+        setJourneyTarget(locale.sim, p);
+      }
+    }
     if (this.tick % 30 === 0) this.syncPersonalityRelocations();
     this.policy.step(); // demand-driven rival population
     return results;
@@ -281,7 +314,7 @@ export class World {
 
   /**
    * Teleport: a taxi parked on a teleport pad travels to another locale, free, landing on a
-   * clear spot of a teleport pad there. Needs an empty cab. If every arrival spot is taken,
+   * clear spot of a teleport pad there. If every arrival spot is taken,
    * nothing happens (the taxi stays put, safe, and can try again).
    */
   teleport(taxiId: string, toLocaleId: string): TeleportResult {
@@ -292,7 +325,11 @@ export class World {
     if (from === to) return 'same';
     const t = from.sim.taxis.find((x) => x.id === taxiId);
     if (!t || !atTeleport(from.sim, t)) return 'notAtTeleport';
-    if (from.sim.passengers.some((p) => p.taxiId === taxiId && (p.state === 'riding' || p.state === 'walking'))) {
+    const rider = riderOf(from.sim, taxiId);
+    const deliveringHere = !!rider && needsTransfer(from.sim, rider) && rider.destination.localeId === to.id;
+    if (t.npc && !deliveringHere && to.sim.taxis.filter(x => x.npc && x.status !== 'destroyed').length >= this.config.rivalsMaxPerLocale) return 'blocked';
+    if (!canTravel(t, to.id)) return 'unqualified';
+    if (from.sim.passengers.some((p) => p.taxiId === taxiId && p.state === 'walking')) {
       return 'occupied';
     }
     const spot = this.arrivalSpot(to);
@@ -327,18 +364,22 @@ export class World {
 
   /**
    * NPC taxis the coordinator asked to relocate fly to a teleport on their own; once one is
-   * parked there (with an empty cab), move it. A blocked arrival just waits for next time.
+   * parked there, move it. A blocked arrival just waits for next time.
    */
   processRelocations(): { taxiId: string; from: string; to: string }[] {
     const moved: { taxiId: string; from: string; to: string }[] = [];
     for (const locale of this.locales) {
       for (const t of [...locale.sim.taxis]) {
-        if (!t.npc || !t.relocateTo || !isActive(t)) continue;
-        if (t.relocateTo === locale.id || !this.locales.some((l) => l.id === t.relocateTo)) {
+        if (!t.npc || !isActive(t)) continue;
+        if (!t.relocateTo && t.passengerId < 0) continue;
+        const rider = riderOf(locale.sim, t.id);
+        const travel = rider ? (needsTransfer(locale.sim, rider) ? rider.destination.localeId : null) : t.relocateTo;
+        if (!travel) continue;
+        if (travel === locale.id || !this.locales.some((l) => l.id === travel)) {
           t.relocateTo = null; // nothing to do
           continue;
         }
-        const to = t.relocateTo;
+        const to = travel;
         if (this.teleport(t.id, to) === 'ok') {
           t.relocateTo = null;
           t.ai = null;
@@ -351,8 +392,7 @@ export class World {
   }
 
   /**
-   * Move a taxi to another locale, exactly once: out of the old locale's simulation (any
-   * rider stays behind and leaves) and into the new one (at `spot`, or its start), carrying
+   * Move a taxi to another locale, exactly once: out of the old locale's simulation with its rider and into the new one (at `spot`, or its start), carrying
    * everything it has. Neither locale is reset.
    */
   transfer(taxiId: string, toLocaleId: string, spot?: { padIndex: number; x: number }): void {
@@ -362,12 +402,37 @@ export class World {
     const t = from.sim.taxis.find((x) => x.id === taxiId);
     if (!t) throw new Error(`taxi "${taxiId}" missing from locale "${from.id}"`);
     from.sim.taxis = from.sim.taxis.filter((x) => x !== t);
-    from.sim.passengers = from.sim.passengers.filter((p) => p.taxiId !== taxiId || p.state === 'leaving');
+    const rider = riderOf(from.sim, taxiId);
+    if (rider) from.sim.passengers = from.sim.passengers.filter(p => p !== rider);
+    releaseBoardingPassengers(from.sim, t);
     // Missiles chasing it lose their target (they'll look for another).
     for (const m of from.sim.missiles) if (m.targetId === taxiId) m.targetId = null;
     // Escaping to another locale clears local fear (vendettaTargetId is kept for cross-locale pursuit).
     t.fleeFromId = null;
     admitTaxi(to.sim, t, spot);
+    if (rider) {
+      // Local sprite/AI handles are allocated per locale. The person's ID never changes.
+      const intended = this.locale(rider.destination.localeId).sim.level;
+      const pad = intended.pads[rider.destination.padIndex];
+      const gate = intended.pads.find(p => p.kind === 'teleport');
+      if (pad && gate) {
+        rider.destination.arrivalDistance = Math.hypot(gate.x + gate.w / 2 - pad.x - pad.w / 2, gate.y - pad.y);
+      }
+      rider.id = to.sim.nextPassengerId++;
+      rider.padIndex = t.padIndex;
+      rider.x = t.x;
+      rider.y = t.y;
+      rider.temporaryStop = rider.destination.localeId !== to.id;
+      if (rider.temporaryStop) {
+        const pads = to.sim.level.pads.filter(p => p.kind === 'pad');
+        if (pads.length) rider.destPadIndex = pads[Math.floor(nextRandom(to.sim) * pads.length)]!.index;
+        rider.tipForfeited = true;
+        rider.tip = rider.tipPercent = 0;
+      } else setJourneyTarget(to.sim, rider);
+      t.passengerId = rider.id;
+      to.sim.passengers.push(rider);
+      to.sim.pending.push({ type: 'passengerRemark', passengerId: rider.id, reason: rider.temporaryStop ? 'detour' : 'arrival' });
+    }
     this.taxis[taxiId]!.localeId = to.id;
   }
 
@@ -402,7 +467,23 @@ export class World {
       const content = levelById(l.id);
       if (!content) throw new WorldContentError(`its locale "${l.id}" no longer exists`);
       if (content.version !== l.version) throw new WorldContentError(`its locale "${content.data.name}" has changed since it was saved`);
-      w.locales.push({ id: l.id, version: l.version, sim: { ...l.sim, level: parseLevel(content.data), config } });
+      const sim: SimState = { ...l.sim, localeId: l.id, level: parseLevel(content.data), config };
+      for (const t of sim.taxis) {
+        const owner = w.taxis[t.id]?.accountId;
+        if (owner) t.driverId ??= owner;
+      }
+      // Version 9 saved active passengers as local fares without persistent identities.
+      for (const p of sim.passengers) {
+        if (p.person) continue;
+        p.person = newResident(l.id, p.id, p.kind);
+        if (p.state === 'riding' || p.state === 'leaving') p.person.rides = 1;
+        p.destination = { localeId: l.id, padIndex: p.destPadIndex, arrivalDistance: 0 };
+        p.temporaryStop = false;
+        p.refusedDrivers = [];
+        p.refusalHeard = [];
+        p.vx = p.vy = 0;
+      }
+      w.locales.push({ id: l.id, version: l.version, sim });
     }
     for (const [id, rec] of Object.entries(w.taxis)) {
       if (stashedIds?.has(id)) continue;
@@ -415,4 +496,4 @@ export class World {
 
 export class WorldContentError extends Error {}
 
-export type TeleportResult = 'ok' | 'notAtTeleport' | 'occupied' | 'blocked' | 'same' | 'unknown';
+export type TeleportResult = 'ok' | 'notAtTeleport' | 'occupied' | 'blocked' | 'same' | 'unknown' | 'unqualified';

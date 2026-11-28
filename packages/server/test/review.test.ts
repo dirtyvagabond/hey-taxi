@@ -167,6 +167,6 @@ describe('Server review data', () => {
     expect(d.entries.find((e) => e.category === 'opening')!.description).toBe('Starting funds (joined server)');
     expect(d.entries.find((e) => e.category === 'spawn')!.description).toBe('Replacement taxi issued (account balance carried over)');
     const fare = d.entries.find((e) => e.category === 'fare');
-    if (fare) expect(fare.description).toMatch(/^Fare, passenger #\d+$/);
+    if (fare) expect(fare.description).toMatch(/^Fare, \w+ \w+$/);
   });
 });

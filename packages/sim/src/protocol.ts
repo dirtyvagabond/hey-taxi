@@ -36,7 +36,7 @@ export interface Diagnostics {
 }
 
 /** Bump when the message format changes; a mismatched browser reloads itself. */
-export const PROTOCOL_VERSION = 3;
+export const PROTOCOL_VERSION = 4;
 
 /** Server lifecycle of the current session, as the browser should present it. */
 /** menu = lobby (account selection + server browser); intro = welcome card on first join. */
