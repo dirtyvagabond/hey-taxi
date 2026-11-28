@@ -21,18 +21,20 @@ function run(s: SimState, seconds: number): SimEvent[] {
 }
 
 describe('the world locales', () => {
-  it('have the expected sizes and fare multipliers across all eight locales', () => {
+  it('have the expected sizes and fare multipliers across all nine locales', () => {
     const area = levels.map(({ level }) => level.cols * level.rows);
-    expect(area.map((a) => a / area[0]!)).toEqual([1, 2, 4, 2, 2.5, 2, 3, 3]);
-    expect(levels.map(({ level }) => level.fareMultiplier)).toEqual([1, 1.33, 2, 1.6, 2.5, 1.75, 2.6, 3]);
-    expect(levels[0]!.level).toMatchObject({ cols: 64, rows: 18 });
+    const firstShiftArea = area[1]!;
+    expect(area.map((a) => Math.round((a / firstShiftArea) * 100) / 100)).toEqual([0.32, 1, 2, 4, 2, 2.5, 2, 3, 3]);
+    expect(levels.map(({ level }) => level.fareMultiplier)).toEqual([0.5, 1, 1.33, 2, 1.6, 2.5, 1.75, 2.6, 3]);
+    expect(levels[0]!.level).toMatchObject({ cols: 26, rows: 14, rivals: 0, noRivals: true, firstFareLocalOnly: true });
+    expect(levels[1]!.level).toMatchObject({ cols: 64, rows: 18 });
   });
 
   it.each(levels)('$id: no exit gate or quota; passenger pads, a store and a teleport', ({ level }) => {
     expect(level.exit).toBeNull();
     expect(level.fareQuota).toBe(0);
     const kinds = level.pads.map((p) => p.kind);
-    expect(kinds.filter((k) => k === 'pad').length).toBeGreaterThanOrEqual(5);
+    expect(kinds.filter((k) => k === 'pad').length).toBeGreaterThanOrEqual(level.noRivals ? 3 : 5);
     expect(kinds).toContain('fuel');
     expect(kinds).toContain('teleport');
   });
@@ -57,10 +59,12 @@ describe('the world locales', () => {
   // Rivals must be able to work every locale under the gear rule, safely. Three of them (the
   // per-locale limit) on one map, all hostile: non-combat crashes must be rare (measured over
   // 30 four-minute rival-runs per locale: 2-5; this samples 9 three-minute ones).
-  it.each(levels)('$id: three rivals work it for minutes with hardly any accidents', ({ level }) => {
+  // For noRivals sanctuaries (Santa Monica), run a single autopilot rival to verify navigability.
+  it.each(levels)('$id: autopilot rivals work it for minutes with hardly any accidents', ({ level }) => {
+    const npcIds = level.noRivals ? ['npc1'] : ['npc1', 'npc2', 'npc3'];
     let accidents = 0;
     for (const seed of [1, 2, 3]) {
-      const s = createSim(level, { npcIds: ['npc1', 'npc2', 'npc3'], seed });
+      const s = createSim(level, { npcIds, playerIds: level.noRivals ? [] : undefined, seed });
       const ev = run(s, 180);
       accidents += ev.filter((e) => e.type === 'crashed' && e.reason !== 'missile').length;
       expect(s.taxis.filter((t) => t.npc).reduce((n, t) => n + t.fares, 0)).toBeGreaterThanOrEqual(2);

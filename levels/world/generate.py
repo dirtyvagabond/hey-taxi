@@ -1,11 +1,11 @@
 """
-Generates the game's three locales and checks they're fair.
+Generates the game's nine locales and checks they're fair.
 
     python3 levels/world/generate.py levels/world [-v]
 
-Sizes are by total area relative to locale 1 (64x18 tiles, the old First Shift):
-locale 2 is 2x (64x36), locale 3 is 4x (128x36). Fare multipliers: 1.00, 1.33, 2.00.
-Passenger demand per locale: one about every 10 / 9 / 8 s, up to 3 / 4 / 6 waiting.
+Sizes are reported by total area relative to First Shift (64x18 tiles).
+Santa Monica (26x14) is the single-screen beginner beach sanctuary with 3 passenger pads,
+no rivals, low fares, and local-only rides until the player's first drop-off.
 
 Every pad (passenger pads 1-9, stores F, teleports T) must be reachable from the spawn by a
 2x2-tile box (the taxi is 48x34 in 40u tiles): no passage is narrower or shorter than two
@@ -32,7 +32,7 @@ class L:
         if base: s.fill(row + 1, min(row + base, s.R - 1), c0, c1)
     def rows(s): return [''.join(r) for r in s.g]
 
-def check(lv):
+def check(lv, min_pads=5):
     """Problems found (empty = OK)."""
     g = lv.g; C, R = lv.C, lv.R
     free = lambda c, r: (0 <= c < C - 1 and 0 <= r < R - 1 and
@@ -63,12 +63,28 @@ def check(lv):
                 if not any((x, r - 2) in seen for x in range(c0, c1)): problems.append(f'pad {ch} @row {r} col {c0} unreachable')
             else:
                 c += 1
-    if kinds['pad'] < 5: problems.append('fewer than 5 passenger pads')
+    if kinds['pad'] < min_pads: problems.append(f'fewer than {min_pads} passenger pads')
     if not kinds['F']: problems.append('no store')
     if not kinds['T']: problems.append('no teleport')
     return problems
 
 locales = []
+
+# 0 — Santa Monica (26x14): single-screen beginner beach sanctuary (homage to The Beach).
+# Three open-air platforms all visible in one Comfort-zoom frame, low fares, no NPCs, and
+# local-only passengers until the player completes their first drop-off.
+sm = L(26, 14)
+sm.pad('1', 11, 1, 4, base=1); sm.g[10][2] = 'S'           # Beach Lounge Deck (sand & loungers)
+sm.pad('2', 7, 6, 9, base=0)                               # Giant Beach Umbrella canopy
+sm.pad('F', 11, 10, 12, base=1)                            # Store / Fuel
+sm.pad('T', 11, 14, 19, base=1)                            # Pier Teleport
+sm.pad('3', 9, 21, 24, base=0); sm.fill(10, 12, 22, 23)    # Santa Monica Lifeguard Tower
+locales.append(('0-santa-monica', 'Santa Monica', 0.5, (7.0, 2), 0,
+  'Sunny beach training: three easy platforms, no rivals, low fares. Teleport when ready for the city!', sm, {
+    'theme': 'beach',
+    'noRivals': True,
+    'firstFareLocalOnly': True,
+  }))
 
 # 1 — First Shift (64x18, 1x): the easy one. Wide, low pads with headroom; short hops.
 a = L(64, 18)
@@ -293,10 +309,10 @@ locales.append(('8-overdrive-canyon', 'Overdrive Canyon', 3.0, (4.5, 8), 4,
     'meteors': {'interval': 2.6, 'speed': 300, 'angleDeg': 68, 'radius': 9, 'maxActive': 4},
   }))
 
-base_area = locales[0][6].C * locales[0][6].R
+base_area = next(lv.C * lv.R for slug, _, _, _, _, _, lv, _ in locales if slug == '1-first-shift')
 bad = False
 for slug, name, mult, (interval, max_waiting), rivals, hint, lv, extra in locales:
-    probs = check(lv)
+    probs = check(lv, min_pads=3 if extra.get('noRivals') else 5)
     print(f'{slug} ({lv.C}x{lv.R}, {lv.C * lv.R / base_area:.2g}x area): {"OK" if not probs else probs}')
     bad |= bool(probs)
     # Passenger demand is per locale (a new passenger every ~interval s while fewer than

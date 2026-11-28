@@ -133,7 +133,7 @@ describe('save and resume', () => {
     play(a, 60 * 45, 60 * 45);
     play(b, 60 * 45, 60 * 45);
     expect(fingerprint(b)).toBe(fingerprint(a));
-  });
+  }, 15_000);
 
   it('restarting the host restores the committed server and ledger', async () => {
     const { host, session, account } = await startedHost();

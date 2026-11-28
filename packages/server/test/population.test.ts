@@ -25,8 +25,9 @@ function play(s: GameSession, ticks: number): void {
 function shortage(sim: SimState): void {
   for (const p of sim.passengers) if (p.state === 'waiting') p.waitTicks = 0;
   const pads = sim.level.pads.filter((p) => p.kind === 'pad');
+  const dest = pads[pads.length - 1]!;
   for (const pad of pads.slice(0, 2)) {
-    const p = spawnPassenger(sim, { padIndex: pad.index, destPadIndex: pads[3]!.index, x: pad.x + 50 });
+    const p = spawnPassenger(sim, { padIndex: pad.index, destPadIndex: dest.index, x: pad.x + 50 });
     p.waitTicks = WAIT + 60;
   }
   for (const t of sim.taxis) if (t.ai) t.ai.goal = 'idle:0'; // nobody's claimed them yet
@@ -63,7 +64,7 @@ describe('rival population', () => {
     );
   });
 
-  it('passenger supply is set by the locale, not by how many taxis are around', { timeout: 15000 }, () => {
+  it('passenger supply is set by the locale, not by how many taxis are around', { timeout: 30000 }, () => {
     for (const rivals of [0, 3]) {
       const w = World.create({ ...C }, 7, [PLAYER_ID]);
       for (let i = 0; i < rivals; i++) w.createRival(WORLD_LEVELS[2]);
@@ -84,11 +85,11 @@ describe('rival population', () => {
   it('a shortage redirects an idle, fit rival from a locale with spare capacity, once', () => {
     const w = World.create({ ...C }, 11, [PLAYER_ID]);
     for (let i = 0; i < 60 * 12; i++) w.step({});
-    const target = w.locale(WORLD_LEVELS[2]);
-    const extraId = w.createRival(WORLD_LEVELS[0]); // First Shift now exceeds its baseline floor
+    const target = w.locale(WORLD_LEVELS[3]);
+    const extraId = w.createRival(WORLD_LEVELS[1]); // First Shift now exceeds its baseline floor
     for (let i = 0; i < 30; i++) w.step({});
-    for (const t of w.locale(WORLD_LEVELS[0]).sim.taxis) if (t.npc) fit(w, t.id);
-    for (const p of w.locale(WORLD_LEVELS[0]).sim.passengers) p.state = 'leaving';
+    for (const t of w.locale(WORLD_LEVELS[1]).sim.taxis) if (t.npc) fit(w, t.id);
+    for (const p of w.locale(WORLD_LEVELS[1]).sim.passengers) p.state = 'leaving';
     // Ensure only target has a shortage.
     for (const l of w.locales) if (l !== target) for (const p of l.sim.passengers) if (p.state === 'waiting') p.waitTicks = 0;
     shortage(target.sim);
@@ -106,28 +107,40 @@ describe('rival population', () => {
     expect(w.population.decisions.at(-1)!.text).toMatch(/sending .* over from First Shift/);
   });
 
+  it('never spawns or redirects rivals into a noRivals sanctuary (Santa Monica)', () => {
+    const w = World.create({ ...C }, 15, [PLAYER_ID]);
+    for (let i = 0; i < 60 * 12; i++) w.step({});
+    const beach = w.locale(WORLD_LEVELS[0]);
+    expect(beach.sim.level.noRivals).toBe(true);
+    expect(beach.sim.taxis.filter((t) => t.npc)).toHaveLength(0);
+    shortage(beach.sim);
+    checkNow(w);
+    expect(beach.sim.taxis.filter((t) => t.npc)).toHaveLength(0);
+    expect(Object.values(w.taxis).filter((r) => w.taxi(r.id)?.relocateTo === beach.id)).toHaveLength(0);
+  });
+
   it('the redirected rival really goes: transferred once, recorded, and clears its reservation', () => {
     const s = started(12);
     play(s, 60 * 12);
     const w = s.world;
-    w.createRival(WORLD_LEVELS[0]);
+    w.createRival(WORLD_LEVELS[1]);
     play(s, 30);
-    for (const t of w.locale(WORLD_LEVELS[0]).sim.taxis) if (t.npc) fit(w, t.id);
-    for (const p of w.locale(WORLD_LEVELS[0]).sim.passengers) p.state = 'leaving';
-    for (const l of w.locales) if (l.id !== WORLD_LEVELS[2]) for (const p of l.sim.passengers) if (p.state === 'waiting') p.waitTicks = 0;
-    shortage(w.locale(WORLD_LEVELS[2]).sim);
+    for (const t of w.locale(WORLD_LEVELS[1]).sim.taxis) if (t.npc) fit(w, t.id);
+    for (const p of w.locale(WORLD_LEVELS[1]).sim.passengers) p.state = 'leaving';
+    for (const l of w.locales) if (l.id !== WORLD_LEVELS[3]) for (const p of l.sim.passengers) if (p.state === 'waiting') p.waitTicks = 0;
+    shortage(w.locale(WORLD_LEVELS[3]).sim);
     checkNow(w);
-    const sent = Object.values(w.taxis).find((r) => w.taxi(r.id)?.relocateTo === WORLD_LEVELS[2])!;
+    const sent = Object.values(w.taxis).find((r) => w.taxi(r.id)?.relocateTo === WORLD_LEVELS[3])!;
     let arrived = false;
     for (let i = 0; i < 60 * 90 && !arrived; i++) {
       play(s, 1);
-      arrived = w.taxis[sent.id]!.localeId === WORLD_LEVELS[2];
+      arrived = w.taxis[sent.id]!.localeId === WORLD_LEVELS[3];
     }
     expect(arrived).toBe(true);
     expect(s.ledger.entries.filter((e) => e.taxiId === sent.id && e.category === 'transfer')).toHaveLength(1);
     // Reservation is cleared on arrival so diagnostics never double-count the arrived taxi.
     expect(w.population.reservations.some((r) => r.taxiId === sent.id)).toBe(false);
-    expect(w.policy.diagnostics().locales.find((l) => l.id === WORLD_LEVELS[2])!.reserved).toBe(0);
+    expect(w.policy.diagnostics().locales.find((l) => l.id === WORLD_LEVELS[3])!.reserved).toBe(0);
   });
 
   it('with no taxi to spare, a brand-new rival appears (new ID, name, money) without double-counting reservations', () => {

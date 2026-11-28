@@ -11,7 +11,7 @@ import { EPS } from './constants';
  *              Flying into an open gate completes the level.
  * Anything outside the grid counts as solid.
  */
-export type LevelTheme = 'city' | 'winter' | 'singularity' | 'polarity' | 'vault' | 'canyon';
+export type LevelTheme = 'city' | 'winter' | 'singularity' | 'polarity' | 'vault' | 'canyon' | 'beach';
 
 export interface WindConfig {
   /** Steady horizontal acceleration (u/s²). */
@@ -129,6 +129,10 @@ export interface LevelData {
   fares?: number;
   /** Rival NPC taxis allowed in the level at once (default 1). */
   rivals?: number;
+  /** When true, no rival NPCs may spawn in or enter this locale. */
+  noRivals?: boolean;
+  /** When true, passengers stay local until a player has delivered at least one fare here. */
+  firstFareLocalOnly?: boolean;
   /** One-line tip shown on the level intro card. */
   hint?: string;
   /** Multiplies the distance-based base fare here (tips are not multiplied). Default 1. */
@@ -193,6 +197,10 @@ export interface Level {
   fareQuota: number;
   /** Rival NPC taxis allowed at once. */
   rivals: number;
+  /** When true, rival NPCs are banned from spawning in or entering this locale. */
+  noRivals: boolean;
+  /** When true, cross-locale passengers wait until at least one player fare is delivered here. */
+  firstFareLocalOnly: boolean;
   hint: string;
   /**
    * 1 = solid, row-major. Note: the sim clears the exit gate's tiles when it opens,
@@ -337,7 +345,9 @@ export function parseLevel(data: LevelData): Level {
     passengerInterval: data.passengerInterval ?? 0,
     maxWaiting: data.maxWaiting ?? 0,
     fareQuota: data.fares ?? 0,
-    rivals: Math.max(0, Math.min(3, data.rivals ?? 1)),
+    rivals: data.noRivals ? 0 : Math.max(0, Math.min(3, data.rivals ?? 1)),
+    noRivals: Boolean(data.noRivals),
+    firstFareLocalOnly: Boolean(data.firstFareLocalOnly),
     hint: data.hint ?? '',
     solid,
     exit,

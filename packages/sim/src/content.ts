@@ -3,6 +3,7 @@
  * draws it). Each level has a stable ID (its file name) and a content version (a hash of its
  * data), so saves can tell exactly which content they were made with.
  */
+import w0 from '../../../levels/world/0-santa-monica.json';
 import w1 from '../../../levels/world/1-first-shift.json';
 import w2 from '../../../levels/world/2-midtown.json';
 import w3 from '../../../levels/world/3-skyline.json';
@@ -27,6 +28,7 @@ const entry = contentLevel;
 
 /** The locale IDs, in world order (teleport menu order; the first is where new taxis start). */
 export const WORLD_LEVELS = [
+  'world/0-santa-monica',
   'world/1-first-shift',
   'world/2-midtown',
   'world/3-skyline',
@@ -38,10 +40,12 @@ export const WORLD_LEVELS = [
 ] as const;
 
 /**
- * The game's locales (they all exist at once; teleports connect them):
- * three cities plus five hazard locales (wind, gravity well, polarity, laser gates, meteors).
+ * The game's nine locales (they all exist at once; teleports connect them):
+ * a beginner beach sanctuary, three cities, plus five hazard locales
+ * (wind, gravity well, polarity, laser gates, meteors).
  */
 export const WORLD: ContentLevel[] = [
+  entry('world/0-santa-monica', w0 as LevelData),
   entry('world/1-first-shift', w1),
   entry('world/2-midtown', w2),
   entry('world/3-skyline', w3),

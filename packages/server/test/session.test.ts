@@ -37,9 +37,9 @@ describe('GameSession', () => {
       kind: 'welcome',
       serverName: 'Metro One',
       accountName: TEST_ACCOUNT.name,
-      name: 'First Shift',
-      fareMultiplier: 1,
-      localeCount: 8,
+      name: 'Santa Monica',
+      fareMultiplier: 0.5,
+      localeCount: 9,
     });
     s.command('advance');
     expect(s.running).toBe(true);
@@ -54,7 +54,7 @@ describe('GameSession', () => {
     play(b, 3600, script);
     expect(JSON.stringify(wireSim(a.sim, a.levelId))).toBe(JSON.stringify(wireSim(b.sim, b.levelId)));
     expect(JSON.stringify(a.sim.taxis.map((t) => t.ai))).toBe(JSON.stringify(b.sim.taxis.map((t) => t.ai)));
-    expect(a.sim.taxis.some((t) => t.npc && t.status !== 'offstage')).toBe(true);
+    expect(a.world.locale(WORLD_LEVELS[1]).sim.taxis.some((t) => t.npc && t.status !== 'offstage')).toBe(true);
   });
 
   it('a different seed gives a different game', () => {
@@ -108,7 +108,7 @@ describe('GameSession', () => {
     expect(w.levelId).toBe(WORLD_LEVELS[0]);
     expect('level' in w).toBe(false);
     expect(w.taxis.every((t) => t.ai === null)).toBe(true);
-    expect(s.sim.taxis.find((t) => t.npc)!.ai).not.toBeNull();
+    expect(s.world.locale(WORLD_LEVELS[1]).sim.taxis.find((t) => t.npc)!.ai).not.toBeNull();
     expect(s.player!.id).toBe(s.playerId);
   });
 });

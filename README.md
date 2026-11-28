@@ -92,7 +92,7 @@ packages/
              Web Audio synth, lobby/server browser, world overview, Game review
              UI, and lil-gui tuning panel.
 levels/
-  world/     The eight interconnected world locales + Python generator/validator.
+  world/     The nine interconnected world locales + Python generator/validator.
 scripts/     Dev runner, release/rollback pipeline, and local production supervisor.
 docs/        Detailed gameplay guide and architecture notes.
 ```

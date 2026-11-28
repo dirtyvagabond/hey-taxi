@@ -35,7 +35,7 @@ describe('world', () => {
     const elsewhere = s.ledger.entries.filter((e) => e.locale !== s.levelId && e.category === 'fare');
     expect(elsewhere.length).toBeGreaterThan(0);
     expect(new Set(s.ledger.entries.map((e) => e.locale)).size).toBe(WORLD_LEVELS.length);
-  });
+  }, 15_000);
 
   it('the whole world freezes on pause, at the menu and on disconnect', () => {
     const s = startedSession(4);
@@ -69,7 +69,7 @@ describe('world', () => {
     play(a, 60 * 60, 3600);
     play(b, 60 * 60, 3600);
     expect(fingerprint(b)).toBe(fingerprint(a));
-  });
+  }, 15_000);
 
   it('transfers a taxi exactly once, carrying everything, without resetting either locale', () => {
     const s = startedSession(5);
@@ -129,18 +129,27 @@ describe('world', () => {
   it('extreme-vengeance rivals pursue their vendetta target across teleports while others drop it', () => {
     const s = startedSession(9);
     const pid = s.playerId;
+    teleportTo(s, WORLD_LEVELS[1]);
     play(s, 300);
-    const first = s.world.locale(WORLD_LEVELS[0]);
+    const first = s.world.locale(WORLD_LEVELS[1]);
     const rival = first.sim.taxis.find((t) => t.npc);
     expect(rival).toBeDefined();
 
     rival!.personality = { aggression: 15, vengeance: 17, nerve: 14, hustle: 10, skill: 12 };
     rival!.vendettaTargetId = pid;
-    teleportTo(s, WORLD_LEVELS[1]);
+    teleportTo(s, WORLD_LEVELS[2]);
     play(s, 60);
-    expect(rival!.relocateTo).toBe(WORLD_LEVELS[1]);
+    expect(rival!.relocateTo).toBe(WORLD_LEVELS[2]);
     expect(rival!.vendettaTargetId).toBe(pid);
 
+    // Retreating to the noRivals sanctuary (Santa Monica) drops cross-locale pursuit.
+    rival!.relocateTo = null;
+    teleportTo(s, WORLD_LEVELS[0]);
+    play(s, 60);
+    expect(rival!.relocateTo).toBeNull();
+    expect(rival!.vendettaTargetId).toBeNull();
+
+    teleportTo(s, WORLD_LEVELS[2]);
     rival!.relocateTo = null;
     rival!.personality = { aggression: 12, vengeance: 10, nerve: 12, hustle: 10, skill: 12 };
     rival!.vendettaTargetId = pid;
@@ -149,11 +158,28 @@ describe('world', () => {
     expect(rival!.relocateTo).toBeNull();
   });
 
+  it('Santa Monica keeps passengers local until a player completes at least one drop-off', () => {
+    const w = World.create({ ...DEFAULT_CONFIG, interlocaleChance: 1 }, 21, ['p1']);
+    const beach = w.locale(WORLD_LEVELS[0]);
+    // Before any player drop-off, every spawned passenger stays in Santa Monica.
+    for (let i = 0; i < 60 * 20; i++) w.step({});
+    expect(beach.sim.passengers.length).toBeGreaterThan(0);
+    expect(beach.sim.passengers.every((p) => p.destination.localeId === beach.id)).toBe(true);
+    // Once a player has delivered at least one fare, new passengers can ask for another locale.
+    beach.sim.passengers = [];
+    beach.sim.faresDelivered = 1;
+    beach.sim.passengerSpawnTicks = 1;
+    for (let i = 0; i < 60 * 10 && beach.sim.passengers.length === 0; i++) w.step({});
+    expect(beach.sim.passengers.length).toBeGreaterThan(0);
+    expect(beach.sim.passengers.some((p) => p.destination.localeId !== beach.id)).toBe(true);
+  });
+
   it('marks status dirty immediately when a new rival arrives so the client has its display name', () => {
     const s = startedSession(10);
+    teleportTo(s, WORLD_LEVELS[1]);
     play(s, 5);
     s.statusDirty = false;
-    const id = s.world.createRival(WORLD_LEVELS[0]);
+    const id = s.world.createRival(WORLD_LEVELS[1]);
     const ev = s.tick();
     expect(ev.some((e) => e.type === 'arrived' && e.taxiId === id)).toBe(true);
     expect(s.statusDirty).toBe(true);

@@ -5,15 +5,16 @@
 - **Accounts & Server Browser:** On startup you sign in with a pilot account (stored in `saves/<env>/accounts.sqlite`) and create or join a persistent world ("server"). Each server lives in its own SQLite database under `saves/<env>/servers/` along with its complete financial ledger.
 - **Continuous persistence:** The server saves checkpoints automatically every few seconds while you play, and immediately on pause, menu exit, disconnect, or shutdown.
 - **Taxi skins:** Before flying a new taxi you choose a visual skin (**Pixel Cab**, **Jet Retro**, **THE SHORT BUS**, **NEON GHOST**, **CYBER TAXI**, **SHUTTLE**, **BATH CAB**, or **UAP**). Skins are purely cosmetic — all taxis share identical physics and hitboxes. Rival taxis choose skins from the server's seeded RNG.
-- **Losing your taxi:** A taxi is destroyed at zero hull points or when it crashes/strands after running dry. The world keeps running, and the lost taxi remains permanently on record with its final history and cause of destruction. Press `Enter` to launch a fresh taxi in First Shift (retaining your account balance, with a full tank, full hull, 3 missiles, and 3 flares), `V` for Game review, or `Q` for the lobby.
+- **Losing your taxi:** A taxi is destroyed at zero hull points or when it crashes/strands after running dry. The world keeps running, and the lost taxi remains permanently on record with its final history and cause of destruction. Press `Enter` to launch a fresh taxi in Santa Monica (retaining your account balance, with a full tank, full hull, 3 missiles, and 3 flares), `V` for Game review, or `Q` for the lobby.
 - **Rivals never respawn:** Destroyed rival taxis stay permanently dead, though new named rivals may enter the world if passenger demand exceeds supply.
 
-## The eight locales
+## The nine locales
 
-All eight locales exist and simulate simultaneously — even the ones you aren't currently visiting. Rival taxis pick up fares, refuel, fight, and teleport between cities while you fly elsewhere.
+All nine locales exist and simulate simultaneously — even the ones you aren't currently visiting. Rival taxis pick up fares, refuel, fight, and teleport between cities while you fly elsewhere (Santa Monica is a peaceful, rival-free starter beach).
 
 | Locale | Size (tiles) | Fare Multiplier | Environment & Hazards |
 |---|---:|---:|---|
+| **Santa Monica** | 26 × 14 | ×0.50 | Single-screen beginner beach (3 platforms, no rivals, low fares; local-only until your first drop-off). |
 | **First Shift** | 64 × 18 | ×1.00 | Easy streets, low pads, short hops. |
 | **Midtown** | 64 × 36 | ×1.33 | Stacked upper and lower city linked by gaps in a central floor. |
 | **Skyline** | 128 × 36 | ×2.00 | Large vertical city with shafts, ledges, awnings, and long hauls. |
@@ -25,7 +26,7 @@ All eight locales exist and simulate simultaneously — even the ones you aren't
 
 ### Teleports
 
-Violet teleport pads connect all eight locales for free. Land on a teleport and choose any destination (`1`–`7` or click). The panel shows each locale's fare multiplier, size, waiting passengers, and active taxis. Taxis parked on a teleport cannot be targeted by missiles.
+Violet teleport pads connect all nine locales for free. Land on a teleport and choose any destination (`1`–`8` or click). The panel shows each locale's fare multiplier, size, waiting passengers, and active taxis. Taxis parked on a teleport cannot be targeted by missiles.
 
 ## Flight, landing gear, and fuel
 
@@ -66,7 +67,7 @@ Press **E** to eject your passenger. A passenger close to safe ground hops out. 
 
 Named rival taxis operate under their own autopilot — picking up passengers, shopping for fuel/repairs/ammo, firing missiles, and teleporting between locales. When passengers wait unclaimed in a locale, the world's population manager either dispatches an idle, healthy rival from a locale with spare capacity or spawns a new rival (bounded by per-locale and world caps).
 
-Press `Tab` to open the **World Overview**, inspect activity across all eight locales, or spectate any locale or taxi (`[` / `]` to cycle, `Esc` to return to your cab).
+Press `Tab` to open the **World Overview**, inspect activity across all nine locales, or spectate any locale or taxi (`[` / `]` to cycle, `Esc` to return to your cab).
 
 ## Game review
 

@@ -16,7 +16,7 @@ Zero DOM or filesystem dependencies. Owns all game rules for a single locale:
 
 - **Simulation contract:** `step(state, inputs) -> events` advances one fixed tick at 60 Hz using explicit simulation time and seeded PRNG (`rng.ts`).
 - **Subsystems:** physics & collisions (`sim.ts`), environmental hazards such as wind, gravity wells, polarity zones, laser gates, and meteors (`env.ts`), passengers & fares (`passengers.ts`), heat-seeking missiles & flares (`missiles.ts`), AI co-pilots (`copilot.ts`), flying convenience service (`service.ts`), rival autopilot (`ai.ts`), taxi names/personalities (`personality.ts`), and double-entry style accounting events (`accounts.ts`).
-- **Level content:** `content.ts` imports the eight world maps (`WORLD`, `WORLD_LEVELS`) and computes a stable FNV-1a content hash per map so saves can verify map compatibility. The retired campaign maps and free-flight sandbox maps are test fixtures only (`test/fixtures/`).
+- **Level content:** `content.ts` imports the nine world maps (`WORLD`, `WORLD_LEVELS`) and computes a stable FNV-1a content hash per map so saves can verify map compatibility. The retired campaign maps and free-flight sandbox maps are test fixtures only (`test/fixtures/`).
 - **Wire protocol:** `protocol.ts` (imported as `@hey-taxi/sim/protocol`) defines every WebSocket message and payload type shared by the server and client, so the client depends only on `@hey-taxi/sim`.
 - **Tuning:** `config.ts` (`DEFAULT_CONFIG`) holds all tunable physics, economy, combat, and population parameters.
 
@@ -41,7 +41,7 @@ Browser client built with Vite and PixiJS 8:
 
 ## Level generation & validation
 
-The eight world maps in `levels/world/` are generated and statically validated by `levels/world/generate.py`:
+The nine world maps in `levels/world/` are generated and statically validated by `levels/world/generate.py`:
 
 ```bash
 python3 levels/world/generate.py levels/world

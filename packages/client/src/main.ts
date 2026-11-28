@@ -1126,7 +1126,7 @@ class Game {
       this.world.scale.set(this.zoom);
       this.world.position.set(-this.camera.x * this.zoom + shake.x, -this.camera.y * this.zoom + shake.y);
       if (this.worldView) this.worldView.background.visible = true;
-      this.worldView?.updateParallax(this.camera.x, this.camera.y);
+      this.worldView?.updateParallax(this.camera.x, this.camera.y, this.paused ? 0 : dt);
       this.guides.world.visible = true;
       this.guides.screen.visible = true;
       this.guides.update(this.guideTarget(t), this.camera.x, this.camera.y, this.time, this.zoom, this.vpW, this.vpH);

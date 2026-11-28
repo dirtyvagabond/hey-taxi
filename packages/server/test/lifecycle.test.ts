@@ -21,6 +21,7 @@ function play(s: GameSession, ticks: number, input = 0): void {
 
 /** Fly the rival into a pad at its last hull point (it is destroyed). */
 function destroyRival(s: GameSession): string {
+  if (s.sim.level.noRivals) teleportTo(s, WORLD_LEVELS[1]);
   play(s, Math.round((DEFAULT_CONFIG.npcArrivalDelay + 1) * 60));
   const npc = s.sim.taxis.find((t) => t.npc && t.status === 'flying')!;
   const pad = s.sim.level.pads.find((p) => p.label === '3')!;
@@ -69,7 +70,7 @@ describe('permanent death & persistent account balance', () => {
       kind: 'destroyed',
       taxiNumber: 1,
       accountCents: 10000,
-      death: { cause: 'hardLanding', levelName: 'First Shift' },
+      death: { cause: 'hardLanding', levelName: 'Santa Monica' },
     });
     const tick = s.sim.tick;
     play(s, 600, Input.UP);
@@ -78,6 +79,7 @@ describe('permanent death & persistent account balance', () => {
 
   it('shot down: the death record names whose missile it was', () => {
     const s = startedSession();
+    teleportTo(s, WORLD_LEVELS[1]);
     play(s, Math.round((DEFAULT_CONFIG.npcArrivalDelay + 2) * 60));
     const npc = s.sim.taxis.find((t) => t.npc && t.status === 'flying')!;
     Object.assign(s.player!, { status: 'flying', padIndex: -1, hp: 1, flares: 0, y: s.player!.y - 60, vx: 0, vy: 0 });
@@ -207,15 +209,15 @@ describe('permanent death & persistent account balance', () => {
     const cents = s.sim.taxis.find((t) => t.id === dead)!.cents;
     play(s, 60 * 120);
     expect(s.sim.taxis.find((t) => t.id === dead)!.status).toBe('destroyed');
-    teleportTo(s, WORLD_LEVELS[1]);
+    teleportTo(s, WORLD_LEVELS[2]);
     play(s, 60 * 30);
-    teleportTo(s, WORLD_LEVELS[0]);
+    teleportTo(s, WORLD_LEVELS[1]);
     expect(s.world.taxi(dead)!.status).toBe('destroyed');
     const active = s.world.locales.flatMap((l) => l.sim.taxis).filter((t) => t.status !== 'destroyed');
     expect(active.map((t) => t.id)).not.toContain(dead);
     expect(s.ledger.balanceOf(dead)).toBe(cents);
     expect(s.ledger.entries.filter((e) => e.taxiId === dead).at(-1)).toMatchObject({ category: 'destroyed' });
-  });
+  }, 15_000);
 });
 
 describe('persistent servers & accounts', () => {

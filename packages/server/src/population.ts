@@ -149,6 +149,7 @@ export class Population {
     const waitTicks = Math.round(c.demandWaitSeconds * TICK_RATE);
     // Prioritize locales below their baseline rival floor, then largest backlog, then sparsest area density.
     const ranked = w.locales
+      .filter((locale) => !locale.sim.level.noRivals)
       .map((locale) => {
         const floor = Math.min(locale.sim.level.rivals, c.rivalsMaxPerLocale);
         const deficit = Math.max(0, floor - this.load(locale));
@@ -177,6 +178,7 @@ export class Population {
 
   /** Send an idle rival from a locale that can spare it (staying above its baseline floor). */
   private redirect(target: Locale, forFloor = false): boolean {
+    if (target.sim.level.noRivals) return false;
     const w = this.world;
     const c = w.config;
     if (this.load(target) >= c.rivalsMaxPerLocale) return false;
@@ -213,6 +215,7 @@ export class Population {
 
   /** Bring in a new rival, within the limits and the cooldown. */
   private spawn(target: Locale, forFloor = false): boolean {
+    if (target.sim.level.noRivals) return false;
     const w = this.world;
     const c = w.config;
     const p = this.state;

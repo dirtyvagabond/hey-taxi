@@ -5,7 +5,7 @@ import { World, WORLD_LEVELS, type SavedWorld } from '../src/world';
 import { parkOnTeleport, startedSession } from './helpers';
 import { GameSession } from '../src/session';
 
-const [home, detour, other] = WORLD_LEVELS;
+const [startLocale, home, detour, other] = WORLD_LEVELS;
 
 function setup() {
   const w = World.create({ ...DEFAULT_CONFIG }, 123);
@@ -63,14 +63,14 @@ describe('persistent passenger journeys', () => {
     expect(passenger.state).toBe('riding');
     const save = old.toSave();
     save.saveVersion = 9;
-    const local = save.world.locales.find(l => l.id === home)!.sim;
+    const local = save.world.locales.find(l => l.id === startLocale)!.sim;
     const legacy = local.passengers.find(p => p.id === passenger.id)!;
     for (const key of ['person', 'destination', 'refusedDrivers', 'refusalHeard', 'temporaryStop', 'vx', 'vy']) Reflect.deleteProperty(legacy, key);
     delete local.localeId;
     const restored = new GameSession({ seed: 9 });
     restored.restore(save, structuredClone(old.ledger.entries));
-    const rider = riderOf(restored.world.locale(home).sim, old.playerId)!;
-    expect(rider).toMatchObject({ fare: passenger.fare, destination: { localeId: home, padIndex: 1 }, person: { originLocale: home } });
+    const rider = riderOf(restored.world.locale(startLocale).sim, old.playerId)!;
+    expect(rider).toMatchObject({ fare: passenger.fare, destination: { localeId: startLocale, padIndex: 1 }, person: { originLocale: startLocale } });
     expect(rider.person.name).toBeTruthy();
   });
 

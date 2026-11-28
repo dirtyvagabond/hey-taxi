@@ -1,5 +1,5 @@
 /**
- * Live World Overview HUD ("Dispatch Board"): an HTML + canvas overlay showing all 8 persistent
+ * Live World Overview HUD ("Dispatch Board"): an HTML + canvas overlay showing all 9 persistent
  * locales as live schematic mini-maps, a clickable roster of every active taxi, and a rolling
  * world event feed. Clicking any taxi jumps straight into Follow Mode.
  */
@@ -15,6 +15,7 @@ const THEME_BG: Record<Level['theme'], string> = {
   polarity: '#091520',
   vault: '#130d1c',
   canyon: '#1a0e10',
+  beach: '#0e2440',
 };
 
 const THEME_WALL: Record<Level['theme'], string> = {
@@ -24,6 +25,7 @@ const THEME_WALL: Record<Level['theme'], string> = {
   polarity: '#254a5e',
   vault: '#47315e',
   canyon: '#5e3328',
+  beach: '#a6824e',
 };
 
 const STYLE = `

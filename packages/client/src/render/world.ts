@@ -1,6 +1,7 @@
 import { Container, Graphics } from 'pixi.js';
 import type { Level, LevelTheme } from '@hey-taxi/sim';
 import { MAX_CAMERA_ZOOM, VIEW_H, VIEW_W } from '../camera';
+import { drawBeachPads, drawBeachSky, drawBeachSkyline, drawBeachTerrain } from './beach';
 import { drawCanyonPads, drawCanyonSky, drawCanyonSkyline, drawCanyonTerrain } from './canyon';
 import { makeText } from './text';
 
@@ -106,6 +107,20 @@ export const THEME_PALETTES: Record<LevelTheme, ThemePalette> = {
     window: 0x6b3228,
     windowLit: 0xffd166,
   },
+  beach: {
+    sky: 0x13284d,
+    wall: 0x9c7847,
+    wallPanel: 0xb08a54,
+    wallTop: 0xb8925c,
+    wallShadow: 0x785a31,
+    padBody: 0x12263d,
+    pad: 0x4ef0ff,
+    fuel: 0xffae2b,
+    teleport: 0xc896ff,
+    skyline: 0x0d354f,
+    window: 0x1a2847,
+    windowLit: 0xffd17a,
+  },
 };
 
 const STAR_PARALLAX = 0.12;
@@ -116,7 +131,8 @@ export class WorldView {
   readonly background = new Container();
   readonly terrain = new Container();
   private stars: Graphics;
-  private skyline: Graphics;
+  private skyline: Container;
+  private animateBackdrop: ((dt: number) => void) | null = null;
 
   constructor(level: Level) {
     const pal = THEME_PALETTES[level.theme] ?? COLORS;
@@ -124,22 +140,35 @@ export class WorldView {
     const sky =
       level.theme === 'canyon'
         ? drawCanyonSky(VIEW_W, VIEW_H, rand)
-        : new Graphics().rect(-2000, 0, VIEW_W + 4000, VIEW_H).fill(pal.sky);
-    this.stars = drawStars(level, rand);
-    this.skyline = drawSkyline(level, rand, pal);
+        : level.theme === 'beach'
+          ? drawBeachSky(VIEW_W, VIEW_H, rand)
+          : new Graphics().rect(-2000, 0, VIEW_W + 4000, VIEW_H).fill(pal.sky);
+    this.stars = level.theme === 'beach' ? new Graphics() : drawStars(level, rand);
+    if (level.theme === 'beach') {
+      const [w, h] = layerSize(level, SKYLINE_PARALLAX);
+      const beach = drawBeachSkyline(w, h, rand);
+      this.skyline = beach.container;
+      this.animateBackdrop = beach.update;
+    } else {
+      this.skyline = drawSkyline(level, rand, pal);
+    }
     this.background.addChild(sky, this.stars, this.skyline);
     if (level.theme === 'canyon') {
       this.terrain.addChild(drawCanyonTerrain(level, rand));
       drawCanyonPads(level, this.terrain, pal);
+    } else if (level.theme === 'beach') {
+      this.terrain.addChild(drawBeachTerrain(level, rand));
+      drawBeachPads(level, this.terrain, pal);
     } else {
       this.terrain.addChild(drawTiles(level, pal));
       drawPads(level, this.terrain, pal);
     }
   }
 
-  updateParallax(camX: number, camY: number): void {
+  updateParallax(camX: number, camY: number, dt = 0): void {
     this.stars.position.set(-camX * STAR_PARALLAX, -camY * STAR_PARALLAX);
     this.skyline.position.set(-camX * SKYLINE_PARALLAX, -camY * SKYLINE_PARALLAX);
+    this.animateBackdrop?.(dt);
   }
 
   destroy(): void {

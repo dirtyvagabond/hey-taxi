@@ -100,12 +100,12 @@ describe('teleports', () => {
   it('an NPC asked to relocate flies to a teleport, transfers exactly once, and goes to work there', () => {
     const s = startedSession(6);
     play(s, Math.round((DEFAULT_CONFIG.npcArrivalDelay + 2) * 60));
-    const npc = s.world.locale(WORLD_LEVELS[0]).sim.taxis.find((t) => t.npc && t.status !== 'offstage')!;
-    npc.relocateTo = WORLD_LEVELS[1];
+    const npc = s.world.locale(WORLD_LEVELS[1]).sim.taxis.find((t) => t.npc && t.status !== 'offstage')!;
+    npc.relocateTo = WORLD_LEVELS[2];
     let moved = false;
     for (let i = 0; i < 60 * 60 && !moved; i++) {
       play(s, 1);
-      moved = s.world.taxis[npc.id]!.localeId === WORLD_LEVELS[1];
+      moved = s.world.taxis[npc.id]!.localeId === WORLD_LEVELS[2];
     }
     expect(moved).toBe(true);
     const there = s.world.taxi(npc.id)!;

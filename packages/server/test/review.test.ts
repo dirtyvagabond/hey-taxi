@@ -126,7 +126,7 @@ describe('Server review data', () => {
     }
     const first = d.taxis[0]!;
     expect(first.events.map((e) => e.kind)).toEqual(['started', 'teleported', 'destroyed']);
-    expect(first.events[1]!.text).toBe('Teleported First Shift → Midtown');
+    expect(first.events[1]!.text).toBe('Teleported Santa Monica → First Shift');
     expect(first.events[2]!.text).toBe('Destroyed: landed too hard');
     expect(first.destroyedBy).toBe('Landed too hard');
     for (const t of d.taxis) if (t.status !== 'destroyed') expect(t.destroyedBy).toBeUndefined();
@@ -150,6 +150,7 @@ describe('Server review data', () => {
     const { st, session, acct } = await busyServer();
     const d = await gameDetail(st, session.serverId, acct.accountId);
     const names = [
+      'Santa Monica',
       'First Shift',
       'Midtown',
       'Skyline',

@@ -249,9 +249,10 @@ export class World {
       return { locale, events };
     });
     for (const { locale, events } of results) {
+      if (locale.sim.level.firstFareLocalOnly && locale.sim.faresDelivered < 1) continue;
       for (const e of events) {
         if (e.type !== 'passengerSpawned' || nextRandom(locale.sim) >= this.config.interlocaleChance) continue;
-        const cities = this.locales.filter(l => l !== locale);
+        const cities = this.locales.filter(l => l !== locale && !l.sim.level.noRivals);
         if (!cities.length) continue;
         const to = cities[Math.floor(nextRandom(locale.sim) * cities.length)]!;
         const pads = to.sim.level.pads.filter(p => p.kind === 'pad');
@@ -286,7 +287,8 @@ export class World {
             t.vendettaTargetId = null;
           } else if (targetRec.localeId !== locale.id) {
             const prof = aiProfile(t.personality);
-            if (prof.pursueAcrossLocales) {
+            const targetLocale = this.locales.find((l) => l.id === targetRec.localeId);
+            if (prof.pursueAcrossLocales && !targetLocale?.sim.level.noRivals) {
               if (t.relocateTo !== targetRec.localeId) t.relocateTo = targetRec.localeId;
             } else {
               t.vendettaTargetId = null;
@@ -295,7 +297,7 @@ export class World {
         } else if (t.fleeFromId && t.ai?.wantEscapeLocale && !t.relocateTo) {
           const threatLoc = this.taxis[t.fleeFromId]?.localeId;
           const candidates = this.locales
-            .filter((l) => l.id !== locale.id && l.id !== threatLoc)
+            .filter((l) => l.id !== locale.id && l.id !== threatLoc && !l.sim.level.noRivals)
             .sort((a, b) => a.sim.taxis.filter(isActive).length - b.sim.taxis.filter(isActive).length);
           const dest = candidates[0];
           if (dest) {
@@ -327,6 +329,7 @@ export class World {
     if (!t || !atTeleport(from.sim, t)) return 'notAtTeleport';
     const rider = riderOf(from.sim, taxiId);
     const deliveringHere = !!rider && needsTransfer(from.sim, rider) && rider.destination.localeId === to.id;
+    if (t.npc && to.sim.level.noRivals) return 'blocked';
     if (t.npc && !deliveringHere && to.sim.taxis.filter(x => x.npc && x.status !== 'destroyed').length >= this.config.rivalsMaxPerLocale) return 'blocked';
     if (!canTravel(t, to.id)) return 'unqualified';
     if (from.sim.passengers.some((p) => p.taxiId === taxiId && p.state === 'walking')) {
