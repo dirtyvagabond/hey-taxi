@@ -21,7 +21,8 @@ export type BuiltinSkinId =
   | 'shuttle'
   | 'bathCab'
   | 'uap'
-  | 'tacticalTaxi';
+  | 'tacticalTaxi'
+  | 'trailRunner';
 
 export type SkinId = BuiltinSkinId | (string & {});
 

@@ -10,6 +10,7 @@ import { SHUTTLE } from './shuttle';
 import { BATH_CAB } from './bathCab';
 import { UAP } from './uap';
 import { TACTICAL_TAXI } from './tacticalTaxi';
+import { TRAIL_RUNNER } from './trailRunner';
 import { mix, type SkinDef, type SkinPluginModule, type SkinSDK } from './types';
 
 export type {
@@ -37,6 +38,7 @@ const skinsList: SkinDef[] = [
   BATH_CAB,
   UAP,
   TACTICAL_TAXI,
+  TRAIL_RUNNER,
 ];
 
 /** Every taxi skin (built-in plus any loaded runtime plug-ins), in the order the player sees them. */

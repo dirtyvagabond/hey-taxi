@@ -60,6 +60,7 @@ export const TAXI_SKINS = [
   'bathCab',
   'uap',
   'tacticalTaxi',
+  'trailRunner',
 ] as const;
 export type BuiltinTaxiSkin = (typeof TAXI_SKINS)[number];
 export type TaxiSkin = BuiltinTaxiSkin | (string & {});
