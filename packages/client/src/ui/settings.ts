@@ -97,6 +97,12 @@ const STYLE = `
   align-items: center;
   justify-content: space-between;
   gap: 16px;
+  padding: 4px 0;
+  cursor: pointer;
+}
+.tx-settings-row.selected .tx-settings-label > span,
+.tx-settings-div.selected .tx-settings-label > span {
+  color: var(--c64-accent);
 }
 .tx-settings-label {
   display: flex;
@@ -110,6 +116,25 @@ const STYLE = `
   color: var(--c64-dim);
   font-size: 9px;
   line-height: 1.5;
+}
+@keyframes c64-blink {
+  0%, 49% {
+    background: var(--c64-accent);
+    color: var(--c64-screen);
+  }
+  50%, 100% {
+    background: transparent;
+    color: var(--c64-accent);
+  }
+}
+.c64-cursor {
+  display: inline-block;
+  animation: c64-blink 660ms steps(1) infinite;
+}
+.tx-settings-hint {
+  color: var(--c64-dim);
+  font-size: 9px;
+  text-transform: uppercase;
 }
 .tx-settings-slider {
   display: flex;
@@ -177,10 +202,21 @@ const STYLE = `
 }
 .tx-settings-foot {
   display: flex;
-  justify-content: flex-end;
+  align-items: center;
+  justify-content: space-between;
   gap: 8px;
   border-top: 2px solid var(--c64-bezel);
   padding-top: 12px;
+}
+.tx-settings-done {
+  cursor: pointer;
+  color: var(--c64-text);
+  text-transform: uppercase;
+  font-size: 11px;
+  padding: 4px 6px;
+}
+.tx-settings-done.selected {
+  color: var(--c64-accent);
 }
 `;
 
@@ -197,6 +233,9 @@ export class SettingsUI {
   private muteBtn: HTMLButtonElement;
   private gearBtn: HTMLButtonElement;
   private modal: HTMLDivElement | null = null;
+  private selectedIndex = 0;
+  private rowHandlers: Array<{ activate: () => void; step?: (dir: -1 | 1) => void }> = [];
+  private keyHandler: ((e: KeyboardEvent) => void) | null = null;
 
   constructor(
     private readonly options: DebugOptions,
@@ -231,17 +270,59 @@ export class SettingsUI {
 
   open(): void {
     if (this.modal) return;
-    const backdrop = el('div.tx-settings-backdrop', { role: 'dialog', 'aria-label': 'Settings' });
+    this.selectedIndex = 0;
+    const backdrop = el('div.tx-settings-backdrop', { role: 'dialog', 'aria-label': 'Settings', tabindex: '-1' });
     backdrop.addEventListener('click', (e) => {
       if (e.target === backdrop) this.close();
     });
     this.modal = backdrop;
     document.body.append(backdrop);
+    if (document.activeElement instanceof HTMLElement && document.activeElement !== backdrop) {
+      document.activeElement.blur();
+    }
+    backdrop.focus();
+    this.keyHandler = (e: KeyboardEvent) => {
+      if (!this.modal) return;
+      const n = this.rowHandlers.length;
+      if (!n) return;
+      if (e.code === 'ArrowUp' || e.code === 'KeyW') {
+        e.preventDefault();
+        e.stopPropagation();
+        this.selectedIndex = (this.selectedIndex - 1 + n) % n;
+        this.renderModal();
+      } else if (e.code === 'ArrowDown' || e.code === 'KeyS') {
+        e.preventDefault();
+        e.stopPropagation();
+        this.selectedIndex = (this.selectedIndex + 1) % n;
+        this.renderModal();
+      } else if (e.code === 'ArrowLeft' || e.code === 'KeyA') {
+        e.preventDefault();
+        e.stopPropagation();
+        const h = this.rowHandlers[this.selectedIndex];
+        if (h?.step) h.step(-1);
+        else h?.activate();
+      } else if (e.code === 'ArrowRight' || e.code === 'KeyD') {
+        e.preventDefault();
+        e.stopPropagation();
+        const h = this.rowHandlers[this.selectedIndex];
+        if (h?.step) h.step(1);
+        else h?.activate();
+      } else if (e.code === 'Enter' || e.code === 'NumpadEnter') {
+        e.preventDefault();
+        e.stopPropagation();
+        this.rowHandlers[this.selectedIndex]?.activate();
+      }
+    };
+    window.addEventListener('keydown', this.keyHandler, true);
     this.renderModal();
     this.sync();
   }
 
   close(): void {
+    if (this.keyHandler) {
+      window.removeEventListener('keydown', this.keyHandler, true);
+      this.keyHandler = null;
+    }
     this.modal?.remove();
     this.modal = null;
     this.sync();
@@ -260,10 +341,32 @@ export class SettingsUI {
   private renderModal(): void {
     if (!this.modal) return;
     const o = this.options;
+    this.rowHandlers = [];
 
-    const closeBtn = el('button.tx-btn', { type: 'button' }, 'Done [Esc]');
-    closeBtn.addEventListener('click', () => this.close());
+    const labelSpan = (text: string, selected: boolean) => {
+      if (!selected || !text.length) return el('span', {}, text);
+      return el('span', {}, el('span.c64-cursor', {}, text.charAt(0)), text.slice(1));
+    };
 
+    const bindRow = (
+      node: HTMLElement,
+      idx: number,
+      handler: { activate: () => void; step?: (dir: -1 | 1) => void },
+    ) => {
+      this.rowHandlers[idx] = handler;
+      node.addEventListener('mouseenter', () => {
+        if (this.selectedIndex !== idx) {
+          this.selectedIndex = idx;
+          this.renderModal();
+        }
+      });
+    };
+
+    const stepVolume = (dir: -1 | 1) => {
+      const next = Math.max(0, Math.min(1, Math.round((o.volume + dir * 0.05) * 100) / 100));
+      this.hooks.onVolumeChange(next);
+      this.renderModal();
+    };
     const volPct = el('span.tx-settings-val', {}, `${Math.round(o.volume * 100)}%`);
     const volRange = el('input', {
       type: 'range',
@@ -273,6 +376,7 @@ export class SettingsUI {
       value: String(o.volume),
       'aria-label': 'Master volume',
     });
+    volRange.addEventListener('click', (e) => e.stopPropagation());
     volRange.addEventListener('input', () => {
       const v = Number(volRange.value);
       volPct.textContent = `${Math.round(v * 100)}%`;
@@ -281,26 +385,45 @@ export class SettingsUI {
 
     const toggle = (on: boolean, onClick: () => void) => {
       const b = el(on ? 'button.tx-btn.tx-toggle.on' : 'button.tx-btn.tx-toggle', { type: 'button' }, on ? 'ON' : 'OFF');
-      b.addEventListener('click', onClick);
+      b.addEventListener('click', (e) => {
+        e.stopPropagation();
+        onClick();
+      });
       return b;
     };
 
-    const muteToggle = toggle(o.muted, () => this.hooks.onToggleMute());
-    const voiceToggle = toggle(o.passengerVoice, () => {
+    const toggleMute = () => this.hooks.onToggleMute();
+    const toggleVoice = () => {
       o.passengerVoice = !o.passengerVoice;
       this.hooks.onOptionChanged();
       this.renderModal();
-    });
-    const shakeToggle = toggle(o.screenShake, () => {
+    };
+    const stepZoom = (dir: -1 | 1) => {
+      const cur = CAMERA_ZOOM_PRESETS.findIndex((p) => p.id === o.cameraZoom);
+      const next = CAMERA_ZOOM_PRESETS[(Math.max(0, cur) + dir + CAMERA_ZOOM_PRESETS.length) % CAMERA_ZOOM_PRESETS.length]!;
+      o.cameraZoom = next.id;
+      this.hooks.onOptionChanged();
+      this.renderModal();
+    };
+    const toggleShake = () => {
       o.screenShake = !o.screenShake;
       this.hooks.onOptionChanged();
       this.renderModal();
-    });
-    const controlsToggle = toggle(o.showControls, () => {
+    };
+    const toggleControls = () => {
       o.showControls = !o.showControls;
       this.hooks.onOptionChanged();
       this.renderModal();
-    });
+    };
+    const toggleTuning = () => {
+      this.hooks.onToggleTuning();
+      this.renderModal();
+    };
+
+    const muteToggle = toggle(o.muted, toggleMute);
+    const voiceToggle = toggle(o.passengerVoice, toggleVoice);
+    const shakeToggle = toggle(o.screenShake, toggleShake);
+    const controlsToggle = toggle(o.showControls, toggleControls);
 
     const zoomBtns = CAMERA_ZOOM_PRESETS.map((p) => {
       const active = o.cameraZoom === p.id;
@@ -309,7 +432,8 @@ export class SettingsUI {
         { type: 'button', title: `${p.label} (${cameraZoomTag(p)})` },
         p.label,
       );
-      b.addEventListener('click', () => {
+      b.addEventListener('click', (e) => {
+        e.stopPropagation();
         if (o.cameraZoom === p.id) return;
         o.cameraZoom = p.id;
         this.hooks.onOptionChanged();
@@ -322,60 +446,64 @@ export class SettingsUI {
     const tuningBtn = el(
       tuningOn ? 'button.tx-btn.tx-toggle.on' : 'button.tx-btn',
       { type: 'button' },
-      tuningOn ? 'Hide Tuning [`]' : 'Show Tuning [`]',
+      tuningOn ? 'Hide' : 'Show',
     );
-    tuningBtn.addEventListener('click', () => {
-      this.hooks.onToggleTuning();
-      this.renderModal();
+    tuningBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      toggleTuning();
     });
+
+    const makeRow = (
+      idx: number,
+      cls: string,
+      title: string,
+      sub: string,
+      control: Node,
+      handler: { activate: () => void; step?: (dir: -1 | 1) => void },
+    ) => {
+      const sel = this.selectedIndex === idx;
+      const row = el(
+        sel ? `div.${cls}.selected` : `div.${cls}`,
+        {},
+        el('div.tx-settings-label', {}, labelSpan(title, sel), el('small', {}, sub)),
+        control,
+      );
+      row.addEventListener('click', () => {
+        this.selectedIndex = idx;
+        handler.activate();
+      });
+      bindRow(row, idx, handler);
+      return row;
+    };
+
+    const doneSel = this.selectedIndex === 7;
+    const doneEl = el(
+      doneSel ? 'div.tx-settings-done.selected' : 'div.tx-settings-done',
+      {},
+      doneSel ? el('span.c64-cursor', {}, 'D') : 'D',
+      'ONE',
+    );
+    doneEl.addEventListener('click', () => this.close());
+    bindRow(doneEl, 7, { activate: () => this.close() });
 
     const panel = el(
       'div.tx-settings-panel',
       {},
       el('div.tx-settings-head', {}, el('h2', {}, 'SETTINGS')),
-      el(
-        'div.tx-settings-row',
-        {},
-        el('div.tx-settings-label', {}, el('span', {}, 'Master Volume'), el('small', {}, 'Sound effects and passenger audio')),
-        el('div.tx-settings-slider', {}, volRange, volPct),
-      ),
-      el(
-        'div.tx-settings-row',
-        {},
-        el('div.tx-settings-label', {}, el('span', {}, 'Mute Audio'), el('small', {}, 'Shortcut: M')),
-        muteToggle,
-      ),
-      el(
-        'div.tx-settings-row',
-        {},
-        el('div.tx-settings-label', {}, el('span', {}, 'Passenger Voice'), el('small', {}, 'Retro C64 synthesized passenger speech')),
-        voiceToggle,
-      ),
-      el(
-        'div.tx-settings-row',
-        {},
-        el('div.tx-settings-label', {}, el('span', {}, 'Camera Zoom'), el('small', {}, 'Playfield scale · Shortcut: Z')),
-        el('div.tx-seg', {}, ...zoomBtns),
-      ),
-      el(
-        'div.tx-settings-row',
-        {},
-        el('div.tx-settings-label', {}, el('span', {}, 'Screen Shake'), el('small', {}, 'Camera trauma on bumps and explosions')),
-        shakeToggle,
-      ),
-      el(
-        'div.tx-settings-row',
-        {},
-        el('div.tx-settings-label', {}, el('span', {}, 'Flight Controls Bar'), el('small', {}, 'Show key hints at bottom of playfield')),
-        controlsToggle,
-      ),
-      el(
-        'div.tx-settings-div',
-        {},
-        el('div.tx-settings-label', {}, el('span', {}, 'Developer Tuning'), el('small', {}, 'Physics, fuel, rivals & hitboxes')),
-        tuningBtn,
-      ),
-      el('div.tx-settings-foot', {}, closeBtn),
+      makeRow(0, 'tx-settings-row', 'Master Volume', 'Sound effects and passenger audio', el('div.tx-settings-slider', {}, volRange, volPct), {
+        activate: () => stepVolume(1),
+        step: stepVolume,
+      }),
+      makeRow(1, 'tx-settings-row', 'Mute Audio', 'Shortcut: M', muteToggle, { activate: toggleMute }),
+      makeRow(2, 'tx-settings-row', 'Passenger Voice', 'Retro C64 synthesized speech', voiceToggle, { activate: toggleVoice }),
+      makeRow(3, 'tx-settings-row', 'Camera Zoom', 'Shortcut: Z', el('div.tx-seg', {}, ...zoomBtns), {
+        activate: () => stepZoom(1),
+        step: stepZoom,
+      }),
+      makeRow(4, 'tx-settings-row', 'Screen Shake', 'Camera trauma on bumps and hits', shakeToggle, { activate: toggleShake }),
+      makeRow(5, 'tx-settings-row', 'Flight Controls Bar', 'Show key hints at bottom', controlsToggle, { activate: toggleControls }),
+      makeRow(6, 'tx-settings-div', 'Developer Tuning', 'Shortcut: `', tuningBtn, { activate: toggleTuning }),
+      el('div.tx-settings-foot', {}, el('span.tx-settings-hint', {}, '↑↓ SELECT · ←→/ENTER CHANGE · ESC CLOSE'), doneEl),
     );
 
     this.modal.replaceChildren(panel);

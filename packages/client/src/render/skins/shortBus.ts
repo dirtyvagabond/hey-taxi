@@ -5,8 +5,8 @@
  * suspension struts for landing gear, and a mini red STOP sign arm that swings out above the
  * hood when the gear locks down.
  *
- * The body color tints the yellow bus paint directly so rivals fly crimson, cobalt, emerald,
- * or pink short buses while the black stripes, chrome grille, windows, and tires stay neutral.
+ * The bus body stays classic School-Bus Gold (`SHORT_BUS_YELLOW`) while the paint color tints
+ * the horizontal rub-rail stripes (black by default for the player, or the chosen/rival color).
  *
  * Taxi-local units, facing right. The body (~42u wide) stays inside the ±24 × ±10 hitbox with
  * flush thruster anchors; extended tires sit at the bottom of the feet box (y 24) inside ±feetHalfW.
@@ -65,16 +65,16 @@ function silhouette(g: Graphics): Graphics {
   return g;
 }
 
-function drawBody(g: Graphics, color: number): void {
-  const shade = mix(color, 0x000000, 0.18);
-  const deep = mix(color, 0x000000, 0.36);
-  const hi = mix(color, 0xffffff, 0.48);
+function drawBody(g: Graphics, stripeColor: number): void {
+  const shade = mix(SHORT_BUS_YELLOW, 0x000000, 0.18);
+  const deep = mix(SHORT_BUS_YELLOW, 0x000000, 0.36);
+  const hi = mix(SHORT_BUS_YELLOW, 0xffffff, 0.48);
 
   // Rear exhaust tailpipe peeking behind the rear bumper.
   g.roundRect(-22.2, 7.1, 3.0, 1.3, 0.5).fill(CHROME_DARK);
 
-  // Main stepped bus hull (with open wheel arches).
-  silhouette(g).fill(color);
+  // Main stepped bus hull (with open wheel arches), always School-Bus Gold.
+  silhouette(g).fill(SHORT_BUS_YELLOW);
 
   // Lower flank shadow band (segmented around the open wheel arches).
   g.roundRect(-20.2, 4.2, 2.6, 3.8, 0.8).fill({ color: shade, alpha: 0.75 });
@@ -102,10 +102,10 @@ function drawBody(g: Graphics, color: number): void {
   g.poly([4.0, -6.4, 7.4, -6.4, 8.2, -1.0, 4.0, -1.0]).fill(GLASS);
   g.moveTo(5.0, -5.6).lineTo(6.6, -5.6).stroke({ width: 0.7, color: 0xffffff, alpha: 0.4, cap: 'round' });
 
-  // Twin black rub-rail stripes (upper runs full cab length; lower runs cleanly between arches).
-  g.rect(-20.3, 0.2, 28.9, 1.4).fill(STRIPE);
-  g.rect(-8.4, 2.3, 17.0, 0.85).fill(STRIPE);
-  g.rect(8.6, 0.9, 11.4, 0.85).fill(STRIPE);
+  // Twin horizontal rub-rail stripes tinted by the chosen paint color (black by default).
+  g.rect(-20.3, 0.2, 28.9, 1.4).fill(stripeColor);
+  g.rect(-8.4, 2.3, 17.0, 0.85).fill(stripeColor);
+  g.rect(8.6, 0.9, 11.4, 0.85).fill(stripeColor);
 
   // Dark rubber fender lips tracing the open wheel arches.
   const lipR = ARCH_R + 0.15;
@@ -163,10 +163,8 @@ class ShortBusArt implements SkinArt {
   private flashers = new Graphics();
   private stage: HullStage | -1 = -1;
   private riderKind: number | null = null;
-  private busColor: number;
 
   constructor(color: number) {
-    this.busColor = color;
     drawBody(this.paint, color);
     silhouette(this.warn).stroke({ width: 3.4, color: WARN, alpha: 0.9 });
     this.warn.visible = false;
@@ -255,7 +253,7 @@ class ShortBusArt implements SkinArt {
         g.moveTo(-2.6, -5.6).lineTo(0.2, -3.2).lineTo(2.0, -1.6).stroke({ width: 0.55, color: 0xdbe6ff, alpha: 0.8 });
         // Popped/tilted hood edge (cartoon overheating bus).
         g.poly([8.6, -1.2, 19.6, -0.3, 19.2, -1.8, 8.6, -1.6]).fill(0x0c0e14);
-        g.moveTo(8.6, -1.6).lineTo(19.4, -1.9).stroke({ width: 1.1, color: mix(this.busColor, 0x000000, 0.25), cap: 'round' });
+        g.moveTo(8.6, -1.6).lineTo(19.4, -1.9).stroke({ width: 1.1, color: mix(SHORT_BUS_YELLOW, 0x000000, 0.25), cap: 'round' });
       }
       this.paint.tint = stage >= 3 ? 0xecc0b8 : stage === 2 ? 0xe8e8e8 : 0xffffff;
       this.gear.tint = stage >= 3 ? 0xf0c8c0 : 0xffffff;
@@ -300,7 +298,7 @@ class ShortBusArt implements SkinArt {
 export const SHORT_BUS: SkinDef = {
   id: 'shortBus',
   name: 'THE SHORT BUS',
-  playerColor: SHORT_BUS_YELLOW,
+  playerColor: STRIPE,
   thrusters: {
     tail: { x: -21, y: 3.5 },
     nose: { x: 21, y: 3.5 },

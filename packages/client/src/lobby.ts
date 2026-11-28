@@ -28,7 +28,7 @@ const STYLE = `
 .lb button.danger { color: var(--c64-danger-light); border-color: var(--c64-danger); background: var(--c64-screen-alt); }
 .lb button.danger:hover:not(:disabled) { background: var(--c64-danger); border-color: var(--c64-danger-light); color: var(--c64-text); }
 .lb button.danger.confirm { background: var(--c64-danger); color: var(--c64-text); border-color: var(--c64-danger-light); }
-.lb input { font: inherit; font-size: 11px; color: var(--c64-text); background: #1d154d; border: 2px solid var(--c64-bezel);
+.lb input { font: inherit; font-size: 11px; color: var(--c64-text); background: #261b5c; border: 2px solid var(--c64-bezel);
   border-radius: 0; padding: 8px 12px; flex: 1; min-width: 180px; outline: none; }
 .lb input::placeholder { color: var(--c64-dim); opacity: 0.75; }
 .lb input:focus { border-color: var(--c64-accent); }
@@ -47,6 +47,20 @@ const STYLE = `
 .lb .acct-btn { display: flex; align-items: center; gap: 8px; padding: 7px 14px; }
 .lb .section-label { color: var(--c64-dim); font-size: 10px; text-transform: uppercase; letter-spacing: 1px; margin: 18px 0 8px; }
 .lb .create-bar { border-top: 2px solid var(--c64-bezel); padding-top: 16px; margin-top: 8px; }
+.lb tr.srv-row { cursor: pointer; }
+.lb tr.srv-row.selected .srv-name { color: var(--c64-accent); }
+.lb .lb-item { display: inline-flex; align-items: center; gap: 6px; padding: 6px 8px; cursor: pointer;
+  color: var(--c64-text); text-transform: uppercase; font-size: 11px; }
+.lb .lb-item.selected { color: var(--c64-accent); }
+.lb .lb-menu-list { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; margin-top: 8px; }
+.lb .lb-foot { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;
+  margin-top: 14px; padding-top: 12px; border-top: 2px solid var(--c64-bezel); }
+.lb .lb-hint { color: var(--c64-dim); font-size: 9px; text-transform: uppercase; }
+@keyframes lb-c64-blink {
+  0%, 49% { background: var(--c64-accent); color: var(--c64-screen); }
+  50%, 100% { background: transparent; color: var(--c64-accent); }
+}
+.lb .c64-cursor { display: inline-block; animation: lb-c64-blink 660ms steps(1) infinite; }
 `;
 
 export interface LobbyHooks {
@@ -68,6 +82,9 @@ export class LobbyScreen {
   private confirmDeleteId: string | null = null;
   private pendingAccountInput = '';
   private pendingServerInput = '';
+  private selectedIndex = 0;
+  private itemActions: Array<() => void> = [];
+  private keyHandler: ((e: KeyboardEvent) => void) | null = null;
 
   constructor(private readonly hooks: LobbyHooks) {
     ensureTheme();
@@ -84,7 +101,10 @@ export class LobbyScreen {
     this.account = account;
     this.servers = servers;
     if (notice !== undefined) this.notice = notice;
-    if (accountChanged && account) this.switchingAccount = false;
+    if (accountChanged && account) {
+      this.switchingAccount = false;
+      this.selectedIndex = 0;
+    }
     if (this.root) this.render();
   }
 
@@ -95,32 +115,104 @@ export class LobbyScreen {
 
   open(): void {
     if (!this.root) {
-      this.root = el('div.lb', { role: 'dialog', 'aria-label': 'Taxis Lobby' });
+      this.root = el('div.lb', { role: 'dialog', 'aria-label': 'Taxis Lobby', tabindex: '-1' });
       document.body.append(this.root);
     }
     this.confirmDeleteId = null;
+    this.selectedIndex = 0;
+    this.bindKeys();
     this.render();
+    window.focus();
   }
 
   close(): void {
+    if (this.keyHandler) {
+      window.removeEventListener('keydown', this.keyHandler, true);
+      this.keyHandler = null;
+    }
     this.root?.remove();
     this.root = null;
     this.confirmDeleteId = null;
+    this.itemActions = [];
+  }
+
+  private bindKeys(): void {
+    if (this.keyHandler) return;
+    this.keyHandler = (e: KeyboardEvent) => {
+      if (!this.root) return;
+      const active = document.activeElement;
+      const typing = active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement;
+      if (typing) {
+        if (e.code === 'Escape' || e.code === 'ArrowUp') {
+          e.preventDefault();
+          e.stopPropagation();
+          active.blur();
+          this.root.focus();
+          if (e.code === 'ArrowUp' && this.itemActions.length > 0) {
+            this.selectedIndex = (this.selectedIndex - 1 + this.itemActions.length) % this.itemActions.length;
+            this.render();
+          }
+        }
+        return;
+      }
+      const n = this.itemActions.length;
+      if (!n) return;
+      if (e.code === 'ArrowUp' || e.code === 'KeyW') {
+        e.preventDefault();
+        e.stopPropagation();
+        this.selectedIndex = (this.selectedIndex - 1 + n) % n;
+        this.render();
+      } else if (e.code === 'ArrowDown' || e.code === 'KeyS') {
+        e.preventDefault();
+        e.stopPropagation();
+        this.selectedIndex = (this.selectedIndex + 1) % n;
+        this.render();
+      } else if (e.code === 'Enter' || e.code === 'NumpadEnter') {
+        e.preventDefault();
+        e.stopPropagation();
+        this.itemActions[this.selectedIndex]?.();
+      }
+    };
+    window.addEventListener('keydown', this.keyHandler, true);
   }
 
   private render(): void {
     const root = this.root;
     if (!root) return;
+    const active = document.activeElement;
+    const wasInAccountInput = active instanceof HTMLInputElement && active.dataset.role === 'account-name';
+    const wasInServerInput = active instanceof HTMLInputElement && active.dataset.role === 'server-name';
     if (!this.account || this.switchingAccount) {
       root.replaceChildren(this.renderAccountView());
       const input = root.querySelector<HTMLInputElement>('input[data-role="account-name"]');
-      if (input) input.focus();
+      if (input && (this.accounts.length === 0 || wasInAccountInput)) {
+        input.focus();
+      } else {
+        if (active instanceof HTMLElement && active !== root) active.blur();
+        root.focus();
+      }
     } else {
       root.replaceChildren(this.renderServerBrowser());
+      const input = root.querySelector<HTMLInputElement>('input[data-role="server-name"]');
+      if (input && (this.servers.length === 0 || wasInServerInput)) {
+        input.focus();
+      } else {
+        if (active instanceof HTMLElement && active !== root) active.blur();
+        root.focus();
+      }
     }
   }
 
+  private cursorText(text: string, selected: boolean): (Node | string)[] {
+    if (!selected || !text.length) return [text];
+    return [el('span.c64-cursor', {}, text.charAt(0)), text.slice(1)];
+  }
+
   private renderAccountView(): HTMLElement {
+    this.itemActions = [];
+    const totalItems = this.accounts.length + 1 + (this.account ? 1 : 0);
+    if (this.selectedIndex >= totalItems) this.selectedIndex = 0;
+
     const input = el('input', {
       type: 'text',
       maxlength: '24',
@@ -148,63 +240,119 @@ export class LobbyScreen {
         'div.lb-head',
         {},
         el('div', {}, el('h1', {}, 'HEY, TAXI!'), el('div.sub', {}, 'Sign in or create a player account')),
-        this.account
-          ? (() => {
-              const cancel = el('button', { type: 'button' }, 'Cancel');
-              cancel.addEventListener('click', () => {
-                this.switchingAccount = false;
-                this.render();
-              });
-              return cancel;
-            })()
-          : null,
       ),
       this.notice ? el('div.notice', {}, this.notice) : null,
-      el('div.section-label', {}, 'New or existing pilot name'),
-      form,
     ];
 
     if (this.accounts.length > 0) {
-      const list = el('div.acct-list', {});
-      for (const a of this.accounts) {
-        const active = a.accountId === this.account?.accountId;
-        const btn = el(
-          active ? 'button.acct-btn.primary' : 'button.acct-btn',
-          { type: 'button' },
-          a.name,
-        );
-        btn.addEventListener('click', () => {
+      const list = el('div.lb-menu-list', {});
+      this.accounts.forEach((a, i) => {
+        const sel = this.selectedIndex === i;
+        const label = a.name.toUpperCase();
+        const activate = () => {
           this.switchingAccount = false;
           this.hooks.onSelectAccount(a.accountId);
+        };
+        this.itemActions.push(activate);
+        const item = el(sel ? 'div.lb-item.selected' : 'div.lb-item', {}, ...this.cursorText(label, sel));
+        item.addEventListener('mouseenter', () => {
+          if (this.selectedIndex !== i) {
+            this.selectedIndex = i;
+            this.render();
+          }
         });
-        list.append(btn);
-      }
-      children.push(el('div.section-label', {}, 'Or select an existing account'), list);
+        item.addEventListener('click', activate);
+        list.append(item);
+      });
+      children.push(el('div.section-label', {}, 'Select pilot'), list);
     }
+
+    const newIdx = this.itemActions.length;
+    const newSel = this.selectedIndex === newIdx;
+    const focusInput = () => {
+      this.selectedIndex = newIdx;
+      input.focus();
+    };
+    this.itemActions.push(focusInput);
+    const newLabel = el(
+      newSel ? 'div.lb-item.selected' : 'div.lb-item',
+      { style: 'margin-top: 12px; padding-left: 0;' },
+      ...this.cursorText('NEW PILOT NAME', newSel),
+    );
+    newLabel.addEventListener('mouseenter', () => {
+      if (this.selectedIndex !== newIdx) {
+        this.selectedIndex = newIdx;
+        this.render();
+      }
+    });
+    newLabel.addEventListener('click', focusInput);
+    children.push(newLabel, form);
+
+    if (this.account) {
+      const cancelIdx = this.itemActions.length;
+      const cancelSel = this.selectedIndex === cancelIdx;
+      const cancelAction = () => {
+        this.switchingAccount = false;
+        this.selectedIndex = 0;
+        this.render();
+      };
+      this.itemActions.push(cancelAction);
+      const cancelItem = el(
+        cancelSel ? 'div.lb-item.selected' : 'div.lb-item',
+        { style: 'margin-top: 10px; padding-left: 0;' },
+        ...this.cursorText('CANCEL', cancelSel),
+      );
+      cancelItem.addEventListener('mouseenter', () => {
+        if (this.selectedIndex !== cancelIdx) {
+          this.selectedIndex = cancelIdx;
+          this.render();
+        }
+      });
+      cancelItem.addEventListener('click', cancelAction);
+      children.push(cancelItem);
+    }
+
+    children.push(
+      el('div.lb-foot', {}, el('span.lb-hint', {}, '↑↓ SELECT · ENTER ACTIVATE')),
+    );
 
     return el('div.lb-panel.narrow', {}, ...children);
   }
 
   private renderServerBrowser(): HTMLElement {
     const acct = this.account!;
+    this.itemActions = [];
+    const totalItems = this.servers.length + 3;
+    if (this.selectedIndex >= totalItems) this.selectedIndex = 0;
 
-    const switchBtn = el('button', { type: 'button' }, 'Switch Account');
-    switchBtn.addEventListener('click', () => {
-      this.switchingAccount = true;
-      this.render();
+    const srvInput = el('input', {
+      type: 'text',
+      maxlength: '32',
+      placeholder: 'New server name (e.g. Midtown Prime)…',
+      'data-role': 'server-name',
+      value: this.pendingServerInput,
+    });
+    srvInput.addEventListener('input', () => {
+      this.pendingServerInput = srvInput.value;
+    });
+    const createBtn = el('button', { type: 'submit' }, '+ Create Server');
+    const createForm = el('form.row', {}, srvInput, createBtn);
+    createForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const name = srvInput.value.trim();
+      if (!name) return;
+      this.pendingServerInput = '';
+      this.hooks.onCreateServer(name);
     });
 
-    const reviewAllBtn = el('button', { type: 'button' }, 'Server Review');
-    reviewAllBtn.addEventListener('click', () => this.hooks.onReviewServer(null));
+    const rows = this.servers.map((s, idx) => {
+      const sel = this.selectedIndex === idx;
+      const joinable = s.status !== 'unreadable';
+      const joinAction = () => {
+        if (joinable) this.hooks.onJoinServer(s);
+      };
+      this.itemActions.push(joinAction);
 
-    const header = el(
-      'div.lb-head',
-      {},
-      el('div', {}, el('h1', {}, 'HEY, TAXI!'), el('div.sub', {}, 'Persistent Servers · Select a server to join')),
-      el('div.pilot', {}, el('span.pilot-tag', {}, `PILOT: ${acct.name}`), switchBtn, reviewAllBtn),
-    );
-
-    const rows = this.servers.map((s) => {
       const statusCell = (() => {
         if (s.status === 'unreadable') return el('span.bad', {}, s.error ?? 'Unreadable');
         if (!s.account || !s.account.joined) return el('span.dim', {}, 'New pilot · $100.00 start');
@@ -215,16 +363,27 @@ export class LobbyScreen {
       })();
 
       const joinBtn = el('button.primary', { type: 'button' }, 'Join');
-      if (s.status === 'unreadable') joinBtn.disabled = true;
-      joinBtn.addEventListener('click', () => this.hooks.onJoinServer(s));
+      if (!joinable) joinBtn.disabled = true;
+      joinBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        joinAction();
+      });
 
       const revBtn = el('button', { type: 'button' }, 'Ledger');
-      if (s.status === 'unreadable') revBtn.disabled = true;
-      revBtn.addEventListener('click', () => this.hooks.onReviewServer(s.serverId));
+      if (!joinable) revBtn.disabled = true;
+      revBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.hooks.onReviewServer(s.serverId);
+      });
 
       const confirming = this.confirmDeleteId === s.serverId;
-      const delBtn = el(confirming ? 'button.danger.confirm' : 'button.danger', { type: 'button' }, confirming ? 'Confirm Delete' : 'Delete');
-      delBtn.addEventListener('click', () => {
+      const delBtn = el(
+        confirming ? 'button.danger.confirm' : 'button.danger',
+        { type: 'button' },
+        confirming ? 'Confirm Delete' : 'Delete',
+      );
+      delBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
         if (this.confirmDeleteId === s.serverId) {
           this.confirmDeleteId = null;
           this.hooks.onDeleteServer(s.serverId);
@@ -234,16 +393,65 @@ export class LobbyScreen {
         }
       });
 
-      return el(
-        'tr',
+      const tr = el(
+        sel ? 'tr.srv-row.selected' : 'tr.srv-row',
         {},
-        el('td', {}, el('div.srv-name', {}, s.name)),
+        el('td', {}, el('div.srv-name', {}, ...this.cursorText(s.name, sel))),
         el('td.num.dim', {}, clock(s.seconds)),
         el('td.num.dim', {}, String(s.playerCount)),
         el('td', {}, statusCell),
         el('td', {}, el('div.acts', {}, joinBtn, revBtn, delBtn)),
       );
+      tr.addEventListener('mouseenter', () => {
+        if (this.selectedIndex !== idx) {
+          this.selectedIndex = idx;
+          this.render();
+        }
+      });
+      tr.addEventListener('click', joinAction);
+      return tr;
     });
+
+    const createIdx = this.itemActions.length;
+    const createSel = this.selectedIndex === createIdx;
+    const focusCreate = () => {
+      this.selectedIndex = createIdx;
+      srvInput.focus();
+    };
+    this.itemActions.push(focusCreate);
+
+    const reviewIdx = this.itemActions.length;
+    const reviewSel = this.selectedIndex === reviewIdx;
+    const reviewAction = () => this.hooks.onReviewServer(null);
+    this.itemActions.push(reviewAction);
+
+    const switchIdx = this.itemActions.length;
+    const switchSel = this.selectedIndex === switchIdx;
+    const switchAction = () => {
+      this.switchingAccount = true;
+      this.selectedIndex = 0;
+      this.render();
+    };
+    this.itemActions.push(switchAction);
+
+    const makeMenuItem = (idx: number, label: string, sel: boolean, onActivate: () => void) => {
+      const node = el(sel ? 'div.lb-item.selected' : 'div.lb-item', {}, ...this.cursorText(label, sel));
+      node.addEventListener('mouseenter', () => {
+        if (this.selectedIndex !== idx) {
+          this.selectedIndex = idx;
+          this.render();
+        }
+      });
+      node.addEventListener('click', onActivate);
+      return node;
+    };
+
+    const header = el(
+      'div.lb-head',
+      {},
+      el('div', {}, el('h1', {}, 'HEY, TAXI!'), el('div.sub', {}, 'Persistent Servers · Select a server to join')),
+      el('div.pilot', {}, el('span.pilot-tag', {}, `PILOT: ${acct.name}`)),
+    );
 
     const tableOrEmpty =
       rows.length > 0
@@ -267,24 +475,20 @@ export class LobbyScreen {
           )
         : el('p.dim', {}, 'No servers yet. Create one below to start playing.');
 
-    const srvInput = el('input', {
-      type: 'text',
-      maxlength: '32',
-      placeholder: 'New server name (e.g. Midtown Prime)…',
-      value: this.pendingServerInput,
-    });
-    srvInput.addEventListener('input', () => {
-      this.pendingServerInput = srvInput.value;
-    });
-    const createBtn = el('button', { type: 'submit' }, '+ Create Server');
-    const createForm = el('form.row', {}, srvInput, createBtn);
-    createForm.addEventListener('submit', (e) => {
-      e.preventDefault();
-      const name = srvInput.value.trim();
-      if (!name) return;
-      this.pendingServerInput = '';
-      this.hooks.onCreateServer(name);
-    });
+    const createLabel = makeMenuItem(createIdx, 'CREATE NEW SERVER', createSel, focusCreate);
+    createLabel.style.paddingLeft = '0';
+
+    const footerActions = el(
+      'div.lb-foot',
+      {},
+      el(
+        'div',
+        { style: 'display:flex; gap:16px; flex-wrap:wrap;' },
+        makeMenuItem(reviewIdx, 'SERVER REVIEW', reviewSel, reviewAction),
+        makeMenuItem(switchIdx, 'SWITCH ACCOUNT', switchSel, switchAction),
+      ),
+      el('span.lb-hint', {}, '↑↓ SELECT · ENTER ACTIVATE'),
+    );
 
     return el(
       'div.lb-panel',
@@ -292,7 +496,8 @@ export class LobbyScreen {
       header,
       this.notice ? el('div.notice', {}, this.notice) : null,
       tableOrEmpty,
-      el('div.create-bar', {}, el('div.section-label', { style: 'margin-top:0' }, 'Create a new persistent server'), createForm),
+      el('div.create-bar', {}, createLabel, createForm),
+      footerActions,
     );
   }
 }

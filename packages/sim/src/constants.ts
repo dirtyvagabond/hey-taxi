@@ -62,6 +62,18 @@ export const TAXI_SKINS = [
   'uap',
   'tacticalTaxi',
   'trailRunner',
+  'lunarLander',
+  'supersonic',
+  'woodyWagon',
+  'hoverBot',
+  'boogieVan',
+  'surfBus',
+  'iceCreamCab',
+  'checkerCab',
+  'stadiumBlimp',
+  'chromeRocket',
+  'miniSub',
+  'boombox',
 ] as const;
 export type BuiltinTaxiSkin = (typeof TAXI_SKINS)[number];
 export type TaxiSkin = BuiltinTaxiSkin | (string & {});

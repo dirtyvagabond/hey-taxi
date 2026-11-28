@@ -26,12 +26,12 @@ export const PALETTE = {
 
 export const FONT_STACK = 'ui-monospace, "SF Mono", Menlo, Consolas, monospace';
 
-/** Higher-readability Commodore 64 VIC-II palette for choice menus and modals. */
+/** Standardized Commodore 64 VIC-II init-screen palette for choice menus and modals. */
 export const C64 = {
   bezel: 0x7869c4,
-  screen: 0x2c216b,
-  screenAlt: 0x352879,
-  text: 0xffffff,
+  screen: 0x352879,
+  screenAlt: 0x40318d,
+  text: 0xf0eeff,
   accent: 0xbfce72,
   good: 0x9ad284,
   dim: 0xa69bf0,

@@ -210,8 +210,8 @@ export class ScreenController {
         title: 'OPENED IN ANOTHER TAB',
         color: HUD_COLORS.warn,
         body: 'This session is being played in another browser tab.',
-        footer: 'Press ENTER or click Play Here to take over',
-        actions: [{ label: 'Play Here [Enter]', primary: true, onClick: () => this.hooks.reclaim() }],
+        footer: '↑↓ SELECT · ENTER',
+        actions: [{ label: 'Play Here', primary: true, onClick: () => this.hooks.reclaim() }],
       });
     } else {
       hud.showCard({
@@ -231,33 +231,29 @@ export class ScreenController {
     if (this.currentAccountName) subParts.push(`PILOT ${this.currentAccountName.toUpperCase()}`);
     const subtitle = subParts.join(' · ');
 
-    let pauseHint: string;
     let pauseActions: HudAction[];
     if (status.watchingLocaleId) {
-      pauseHint = 'P to resume · ESC world overview';
       pauseActions = [
-        { label: 'Resume [P]', primary: true, onClick: () => this.hooks.command('pause') },
-        { label: 'World Overview [Esc]', onClick: () => this.hooks.openOverview() },
+        { label: 'Resume', primary: true, onClick: () => this.hooks.command('pause') },
+        { label: 'World Overview', onClick: () => this.hooks.openOverview() },
         { label: 'Settings', onClick: () => this.hooks.openSettings() },
       ];
     } else if (status.spectatingId) {
-      pauseHint = 'P to resume · ESC return to your taxi';
       pauseActions = [
-        { label: 'Resume [P]', primary: true, onClick: () => this.hooks.command('pause') },
-        { label: 'Return to Taxi [Esc]', onClick: () => this.hooks.returnToPlayer() },
+        { label: 'Resume', primary: true, onClick: () => this.hooks.command('pause') },
+        { label: 'Return to Taxi', onClick: () => this.hooks.returnToPlayer() },
         { label: 'Settings', onClick: () => this.hooks.openSettings() },
       ];
     } else {
-      pauseHint = 'P / ESC to resume · Q for server menu';
       pauseActions = [
-        { label: 'Resume [P]', primary: true, onClick: () => this.hooks.command('pause') },
-        { label: 'World Overview [Tab]', onClick: () => this.hooks.openOverview() },
+        { label: 'Resume', primary: true, onClick: () => this.hooks.command('pause') },
+        { label: 'World Overview', onClick: () => this.hooks.openOverview() },
         { label: 'Settings', onClick: () => this.hooks.openSettings() },
         { label: 'Server Review', onClick: () => this.openReviewAfterMenu() },
-        { label: 'Server Menu [Q]', onClick: () => this.hooks.command('menu') },
+        { label: 'Server Menu', onClick: () => this.hooks.command('menu') },
       ];
     }
-    hud.setPaused(status.paused, { subtitle, hint: pauseHint, actions: pauseActions });
+    hud.setPaused(status.paused, { subtitle, hint: '↑↓ SELECT · ENTER · ESC RESUME', actions: pauseActions });
     this.showSave(status);
 
     // The picker belongs to the lobby (first join) or the "destroyed" card; anything else closes it.
@@ -343,10 +339,10 @@ export class ScreenController {
           `Stores sell gas, missiles, flares and repairs. Violet teleports take you to the other\n` +
           `cities: bigger ones pay more per fare. Other taxis are hostile.\n` +
           `If your taxi is destroyed, your account keeps its full dollar balance for your next cab.\n\n${card.hint}`,
-        footer: 'Press ENTER or an arrow key to start',
+        footer: '↑↓ SELECT · ENTER',
         actions: [
-          { label: 'Start Shift [Enter]', primary: true, onClick: () => this.hooks.command('advance') },
-          { label: 'Server Menu [Q]', onClick: () => this.hooks.command('menu') },
+          { label: 'Start Shift', primary: true, onClick: () => this.hooks.command('advance') },
+          { label: 'Server Menu', onClick: () => this.hooks.command('menu') },
         ],
       });
     } else {
@@ -361,13 +357,13 @@ export class ScreenController {
           `Take a fresh taxi in First Shift (full tank, hull, 3 missiles, 3 flares)`,
           `carrying your ${money(card.accountCents)} balance.`,
         ].join('\n'),
-        footer: 'ENTER: fresh taxi   ·   TAB: world overview   ·   Q: server menu   ·   V: server review',
+        footer: '↑↓ SELECT · ENTER',
         align: 'left',
         actions: [
-          { label: 'Fresh Taxi [Enter]', primary: true, onClick: () => this.chooseFreshTaxi(card.taxiNumber + 1) },
-          { label: 'World Overview [Tab]', onClick: () => this.hooks.openOverview() },
-          { label: 'Server Review [V]', onClick: () => this.openReviewAfterMenu() },
-          { label: 'Server Menu [Q]', onClick: () => this.hooks.command('menu') },
+          { label: 'Fresh Taxi', primary: true, onClick: () => this.chooseFreshTaxi(card.taxiNumber + 1) },
+          { label: 'World Overview', onClick: () => this.hooks.openOverview() },
+          { label: 'Server Review', onClick: () => this.openReviewAfterMenu() },
+          { label: 'Server Menu', onClick: () => this.hooks.command('menu') },
         ],
       });
     }

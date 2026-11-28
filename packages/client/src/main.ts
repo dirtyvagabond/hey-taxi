@@ -6,6 +6,7 @@ import {
   atTeleport,
   DEFAULT_CONFIG,
   DT,
+  inSafeZone,
   Input,
   isActive,
   levelById,
@@ -83,6 +84,21 @@ class Game {
   private terrainSlot = new Container();
   private debugGfx = new Graphics();
   private watchGfx = new Graphics();
+  private padShieldGfx = new Graphics();
+  private teleportBeamGfx = new Graphics();
+  private teleportFlashGfx = new Graphics();
+  private padShieldLevels = new Map<number, number>();
+  private padShieldFlashes = new Map<number, number>();
+  private teleportFx: {
+    t: number;
+    dur: number;
+    x: number;
+    y: number;
+    streaks: Array<{ angle: number; r0: number; len: number; speed: number; width: number; color: number }>;
+    sparkles: Array<{ ox: number; oy: number; phase: number; speed: number; color: number }>;
+  } | null = null;
+  private pendingTeleportFx = false;
+  private weaponsLockedAlertAt = -Infinity;
   private vpW = VIEW_W;
   private vpH = VIEW_H;
   private viewScale = 1;
@@ -144,6 +160,9 @@ class Game {
   private hullBeepIn = 0;
   private showDiagnostics = false;
   private copilotOpen = false;
+  private padMenuOpen = false;
+  private wasAtPadMenu = false;
+  private arrivedByTeleport = false;
   private overview = new WorldOverviewScreen(
     () => this.setOverview(false),
     (taxiId) => this.followTaxi(taxiId),
@@ -244,6 +263,7 @@ class Game {
       this.backgroundSlot,
       this.world,
       this.envView.weather,
+      this.teleportFlashGfx,
       this.guides.screen,
       this.hud.overlay,
     );
@@ -260,6 +280,8 @@ class Game {
       this.taxiLayer,
       this.missileLayer.gfx,
       this.passengers.root,
+      this.padShieldGfx,
+      this.teleportBeamGfx,
       this.debugGfx,
       this.watchGfx,
     );
@@ -341,7 +363,10 @@ class Game {
         else this.setOverview(false);
       } else if (this.isWatchingLocale) this.setOverview(true);
       else if (this.isSpectating) this.returnToPlayer();
-      else this.command('pause');
+      else if (this.padMenuOpen) {
+        this.padMenuOpen = false;
+        this.keyboard.clear();
+      } else this.command('pause');
     });
     this.keyboard.onKey('Tab', () => {
       if (this.settings.isOpen) return;
@@ -393,12 +418,12 @@ class Game {
     // Keys 6–9 for teleport destinations beyond the first five (1–5 use the store keys).
     for (let n = 6; n <= 9; n++) {
       const pick = () => {
-        if (this.settings.isOpen) return;
+        if (this.settings.isOpen || !this.padMenuOpen) return;
         const running = this.connected && !this.paused && this.mode === 'playing';
         const me = running ? this.taxiById(this.localId) : undefined;
         if (!me || !atTeleport(this.sim, me)) return;
         const dest = this.destinations()[n - 1];
-        if (dest) this.conn.send({ t: 'teleport', localeId: dest.id });
+        if (dest) this.sendTeleport(dest.id);
       };
       this.keyboard.onKey(`Digit${n}`, pick);
       this.keyboard.onKey(`Numpad${n}`, pick);
@@ -552,8 +577,11 @@ class Game {
     }
     if (status.mode === 'menu') return;
 
-    // Arrived somewhere new by teleport (no intro card): say where.
+    // Arrived somewhere new by teleport (no intro card): keep teleport menu closed and announce arrival.
     if (prev && prev.levelId !== status.levelId && status.mode === 'playing' && !status.spectatingId && !status.watchingLocaleId) {
+      this.padMenuOpen = false;
+      this.arrivedByTeleport = true;
+      this.pendingTeleportFx = true;
       const here = status.locales.find((l) => l.here);
       if (here) {
         this.hud.flash(
@@ -575,7 +603,7 @@ class Game {
     if (modeChanged) this.warnedMissiles.clear();
   }
 
-  /** ENTER: pick a menu item, confirm skin, expand selected overview city, start shift, or reclaim game. */
+  /** ENTER: activate highlighted menu item, confirm skin, expand overview city, or open pad menu. */
   private advance(): void {
     if (this.conn.state === 'replaced') {
       this.conn.reclaim();
@@ -586,13 +614,31 @@ class Game {
       this.overview.confirmSelection();
       return;
     }
+    if (this.paused) {
+      this.hud.confirmPause();
+      return;
+    }
     if (this.isSpectating || this.isWatchingLocale) return;
-    if (this.screens.isPickerOpen) this.screens.confirmPicker();
-    else if (this.mode === 'destroyed') {
-      const n = (this.status?.card?.kind === 'destroyed' ? this.status.card.taxiNumber : 0) + 1;
-      this.screens.chooseFreshTaxi(n);
-    } else if (this.mode === 'intro') {
-      this.command('advance');
+    if (this.screens.isPickerOpen) {
+      this.screens.confirmPicker();
+      return;
+    }
+    if (this.hud.isCardOpen) {
+      this.hud.confirmCard();
+      return;
+    }
+    if (this.mode === 'playing') {
+      const me = this.taxiById(this.localId);
+      const atPad = !!me && (atStore(this.sim, me) || atService(this.sim, me) || atTeleport(this.sim, me));
+      if (this.padMenuOpen) {
+        if (this.hud.isShopOpen) this.hud.confirmShop();
+        else if (this.hud.isTeleportOpen) this.hud.confirmTeleport();
+        return;
+      }
+      if (atPad) {
+        this.padMenuOpen = true;
+        this.keyboard.clear();
+      }
     }
   }
 
@@ -614,9 +660,23 @@ class Game {
       if (fresh) {
         this.sentBits = -1;
         this.snapToTaxi();
+        if (this.pendingTeleportFx) {
+          this.pendingTeleportFx = false;
+          this.triggerTeleportArrivalFx();
+        }
         continue;
       }
       if (!newLevel) this.teleportedTaxis(before.taxis);
+      for (const e of f.events) {
+        if (e.type === 'taxiBump') {
+          for (const id of e.taxiIds) {
+            const bumped = this.taxiById(id);
+            if (bumped && inSafeZone(this.sim, bumped)) {
+              this.padShieldFlashes.set(bumped.padIndex, 1);
+            }
+          }
+        }
+      }
       this.presenter.handle(f.events);
       this.presenter.fuelSounds(fuelBefore, this.taxiById(this.localId)?.fuel ?? 0);
       this.presenter.checkIncomingMissiles();
@@ -654,9 +714,53 @@ class Game {
     return level;
   }
 
+  private sendTeleport(localeId: string): void {
+    this.padMenuOpen = false;
+    this.arrivedByTeleport = true;
+    this.pendingTeleportFx = true;
+    this.keyboard.clear();
+    this.conn.send({ t: 'teleport', localeId });
+  }
+
+  private triggerTeleportArrivalFx(): void {
+    const me = this.taxiById(this.localId);
+    if (!me) return;
+    this.sound.teleport();
+    arrival(this.particles, me.x, me.y, TELEPORT_COLOR, 0xffffff);
+    const streakColors = [0xffffff, 0xd8c0ff, TELEPORT_COLOR, 0x67b6bd];
+    const streaks = Array.from({ length: 56 }, (_, i) => ({
+      angle: (i / 56) * Math.PI * 2 + (Math.random() - 0.5) * 0.14,
+      r0: 18 + Math.random() * 140,
+      len: 40 + Math.random() * 140,
+      speed: 950 + Math.random() * 1150,
+      width: 1.2 + Math.random() * 2.2,
+      color: streakColors[i % streakColors.length]!,
+    }));
+    const sparkleColors = [0xffffff, 0xffe066, 0x67b6bd, 0xd8c0ff, TELEPORT_COLOR];
+    const sparkles = Array.from({ length: 30 }, (_, i) => ({
+      ox: (Math.random() - 0.5) * 64,
+      oy: Math.random() * 170,
+      phase: Math.random() * Math.PI * 2,
+      speed: 55 + Math.random() * 85,
+      color: sparkleColors[i % sparkleColors.length]!,
+    }));
+    this.teleportFx = { t: 0, dur: 1.65, x: me.x, y: me.y, streaks, sparkles };
+    this.zoom = cameraZoomPreset(this.options.cameraZoom).zoom * 0.72;
+  }
+
   private showLevel(levelId: string): void {
     const level = this.levelGeometry(levelId);
+    const changed = this.levelId !== '' && this.levelId !== levelId;
     this.levelId = levelId;
+    if (changed) {
+      this.padMenuOpen = false;
+      this.arrivedByTeleport = true;
+    }
+    this.padShieldLevels.clear();
+    this.padShieldFlashes.clear();
+    this.padShieldGfx.clear();
+    this.teleportBeamGfx.clear();
+    this.teleportFlashGfx.clear();
     if (!this.sim || this.sim.level !== level) {
       this.sim = { ...(this.sim ?? {}), level, config: this.config, taxis: this.sim?.taxis ?? [] } as SimState;
     }
@@ -829,10 +933,30 @@ class Game {
   private frame(rawDt: number): void {
     const dt = Math.min(rawDt, MAX_FRAME_TIME);
     this.time += dt;
+    this.hud.tickMenus(dt);
 
     const bits = this.keyboard.sample();
     const pressedNow = bits & ~this.prevInputBits;
     this.prevInputBits = bits;
+
+    const examining = this.overview.isOpen || this.isSpectating || this.isWatchingLocale;
+    const running =
+      this.connected && !this.paused && (this.mode === 'playing' || (this.mode === 'destroyed' && examining));
+    const livePlayer =
+      running && !examining && this.mode === 'playing' && this.sim?.taxis.length ? this.taxiById(this.localId) : undefined;
+    const atStrNow = !!livePlayer && atStore(this.sim, livePlayer);
+    const atSvcNow = !!livePlayer && !atStrNow && atService(this.sim, livePlayer);
+    const atTelNow = !!livePlayer && !atSvcNow && atTeleport(this.sim, livePlayer);
+    const atAnyPadMenu = atStrNow || atSvcNow || atTelNow;
+    if (livePlayer?.status === 'flying') {
+      this.arrivedByTeleport = false;
+    }
+    if (!atAnyPadMenu) {
+      this.padMenuOpen = false;
+    } else if (!this.wasAtPadMenu && !this.arrivedByTeleport) {
+      this.padMenuOpen = true;
+    }
+    this.wasAtPadMenu = atAnyPadMenu;
 
     if (this.settings.isOpen || this.screens.isReviewOpen || this.screens.isLobbyOpen) {
       // HTML overlay handles its own controls.
@@ -840,19 +964,26 @@ class Game {
       const dx = (pressedNow & Input.RIGHT ? 1 : 0) - (pressedNow & Input.LEFT ? 1 : 0);
       const dy = (pressedNow & Input.DOWN ? 1 : 0) - (pressedNow & Input.UP ? 1 : 0);
       if (dx || dy) this.overview.moveSelection(dx, dy);
+    } else if (this.paused) {
+      const dy = (pressedNow & Input.DOWN ? 1 : 0) - (pressedNow & Input.UP ? 1 : 0);
+      if (dy) this.hud.movePause(dy);
     } else if (this.screens.isPickerOpen) {
       const move = (pressedNow & Input.RIGHT ? 1 : 0) - (pressedNow & Input.LEFT ? 1 : 0);
       if (move) this.screens.movePicker(move);
       const colorMove = (pressedNow & Input.DOWN ? 1 : 0) - (pressedNow & Input.UP ? 1 : 0);
       if (colorMove) this.screens.movePickerColor(colorMove);
       this.screens.updatePicker(this.time, dt);
-    } else if (this.mode === 'intro' && !this.paused && this.connected) {
-      if (pressedNow & (Input.UP | Input.DOWN | Input.LEFT | Input.RIGHT)) this.advance();
+    } else if (this.hud.isCardOpen && !examining) {
+      const dy = (pressedNow & Input.DOWN ? 1 : 0) - (pressedNow & Input.UP ? 1 : 0);
+      if (dy) this.hud.moveCard(dy);
+    } else if (this.padMenuOpen && atAnyPadMenu) {
+      const dy = (pressedNow & Input.DOWN ? 1 : 0) - (pressedNow & Input.UP ? 1 : 0);
+      if (dy) {
+        if (atStrNow || atSvcNow) this.hud.moveShop(dy);
+        else if (atTelNow) this.hud.moveTeleport(dy);
+      }
     }
 
-    const examining = this.overview.isOpen || this.isSpectating || this.isWatchingLocale;
-    const running =
-      this.connected && !this.paused && (this.mode === 'playing' || (this.mode === 'destroyed' && examining));
     if (!this.overview.isOpen && !this.paused && this.connected) {
       const cycle = (pressedNow & Input.RIGHT ? 1 : 0) - (pressedNow & Input.LEFT ? 1 : 0);
       if (cycle) {
@@ -863,7 +994,7 @@ class Game {
     if (running && !examining && this.mode === 'playing') this.sideJetHint(bits);
     if (running && !examining && this.mode === 'playing' && this.sim?.taxis.length && pressedNow) {
       const me = this.taxiById(this.localId);
-      if (me && me.status === 'landed' && me.fuel <= 0 && pressedNow & Input.UP) {
+      if (me && me.status === 'landed' && me.fuel <= 0 && !this.padMenuOpen && pressedNow & Input.UP) {
         if (this.time - this.dryTankAlertAt >= 2) {
           this.dryTankAlertAt = this.time;
           this.sound.fuelEmpty();
@@ -871,16 +1002,23 @@ class Game {
             'OUT OF FUEL',
             HUD_COLORS.bad,
             atStore(this.sim, me) || atService(this.sim, me)
-              ? 'Press 4 or 5 to buy gas before taking off'
+              ? 'Press ENTER to open the store and buy gas'
               : 'Tank empty · press R to summon Rescue Service for gas',
           );
         }
       }
-      if (me && atTeleport(this.sim, me) && !atService(this.sim, me)) {
+      if (me && inSafeZone(this.sim, me) && pressedNow & (Input.FIRE | Input.FLARE)) {
+        if (this.time - this.weaponsLockedAlertAt >= 1.5) {
+          this.weaponsLockedAlertAt = this.time;
+          this.sound.weaponsLocked();
+          this.hud.flash('WEAPONS OFFLINE', HUD_COLORS.info, 'Safe zone — take off to use weapons');
+        }
+      }
+      if (this.padMenuOpen && me && atTeleport(this.sim, me) && !atService(this.sim, me)) {
         const dests = this.destinations();
         const keys = [Input.BUY_MISSILE, Input.BUY_FLARE, Input.BUY_REPAIR, Input.BUY_GAS, Input.BUY_FILL];
         keys.forEach((bit, i) => {
-          if (pressedNow & bit && dests[i]) this.conn.send({ t: 'teleport', localeId: dests[i].id });
+          if (pressedNow & bit && dests[i]) this.sendTeleport(dests[i].id);
         });
       }
     }
@@ -892,7 +1030,10 @@ class Game {
       }
     }
 
-    const send = running && !examining && !this.settings.isOpen && this.mode === 'playing' ? bits : 0;
+    const BUY_MASK = Input.BUY_MISSILE | Input.BUY_FLARE | Input.BUY_REPAIR | Input.BUY_GAS | Input.BUY_FILL;
+    const MOVE_MASK = Input.UP | Input.DOWN | Input.LEFT | Input.RIGHT;
+    const filteredBits = this.padMenuOpen ? bits & ~MOVE_MASK : atAnyPadMenu ? bits & ~BUY_MASK : bits;
+    const send = running && !examining && !this.settings.isOpen && this.mode === 'playing' ? filteredBits : 0;
     if (this.connected && send !== this.sentBits) {
       this.sentBits = send;
       this.conn.send({ t: 'input', bits: send });
@@ -992,7 +1133,7 @@ class Game {
     }
     this.envView.update(this.sim, this.time, this.paused ? 0 : dt, this.vpW);
 
-    const armed = !!t && (t.missiles > 0 || this.config.missilesUnlimited);
+    const armed = !!t && !inSafeZone(this.sim, t) && (t.missiles > 0 || this.config.missilesUnlimited);
     const target =
       !spectating && !watching && t && armed && (t.status === 'flying' || t.status === 'landed')
         ? lockTarget(this.sim, t)
@@ -1000,9 +1141,11 @@ class Game {
     this.serviceLayer.update(this.sim.serviceCrafts ?? [], this.prevService, alpha, this.time);
     this.missileLayer.update(this.sim.missiles, this.sim.decoys, target ? this.drawnAt(target.id) : null, alpha, this.time);
     this.particles.draw();
+    this.drawPadShields(this.paused ? 0 : dt);
+    this.drawTeleportFx(this.paused ? 0 : dt, watching);
     this.drawHitboxes();
     this.drawWatchMarkers(watching);
-    if (t && !watching) this.hud.update(t, this.sim, dt);
+    if (t && !watching) this.hud.update(t, this.sim, dt, this.padMenuOpen);
     this.hud.updateSpectator(
       spectating && t
         ? {
@@ -1043,19 +1186,20 @@ class Game {
       this.hud.updateCoPilot(this.copilotOpen, player ?? t, this.config);
       const atStr = !!player && live && !this.overview.isOpen && atStore(this.sim, player);
       const atSvc = !!player && live && !this.overview.isOpen && !atStr && atService(this.sim, player);
+      const atTel = !!player && live && !this.overview.isOpen && !atSvc && atTeleport(this.sim, player);
       this.hud.updateShop(
         player ?? t,
         this.sim,
-        atStr || atSvc,
+        (atStr || atSvc) && this.padMenuOpen,
         (item) => this.keyboard.pulse(SHOP_BITS[item]),
         atSvc,
       );
       this.hud.updateTeleport(
-        !!player && live && !this.overview.isOpen && atTeleport(this.sim, player) && !atSvc,
+        atTel && this.padMenuOpen,
         this.destinations(),
         this.sim.passengers.some((p) => p.state === 'walking' && p.taxiId === this.localId),
         riderOf(this.sim, this.localId),
-        (localeId) => this.conn.send({ t: 'teleport', localeId }),
+        (localeId) => this.sendTeleport(localeId),
       );
     }
   }
@@ -1280,6 +1424,187 @@ class Game {
     if (!waiting) return null;
     return padTarget(waiting.padIndex, GUIDE_COLORS.pickup) ??
       { x: waiting.x - 20, y: waiting.y, w: 40, label: waiting.person.name, color: GUIDE_COLORS.pickup };
+  }
+
+  /** Pad-anchored energy dome over occupied store and teleport pads (pad-matched amber/violet). */
+  private drawPadShields(dt: number): void {
+    const g = this.padShieldGfx;
+    g.clear();
+    const pads = this.sim.level.pads;
+    const occupied = new Set<number>();
+    for (const t of this.sim.taxis) {
+      if (inSafeZone(this.sim, t)) occupied.add(t.padIndex);
+    }
+    const pulse = 0.5 + 0.5 * Math.sin(this.time * 3.2);
+    for (let i = 0; i < pads.length; i++) {
+      const pad = pads[i]!;
+      if (pad.kind !== 'fuel' && pad.kind !== 'teleport') continue;
+      const target = occupied.has(i) ? 1 : 0;
+      const prev = this.padShieldLevels.get(i) ?? 0;
+      const next = target > prev ? Math.min(1, prev + dt * 4.5) : Math.max(0, prev - dt * 4.5);
+      if (next <= 0.005) {
+        this.padShieldLevels.delete(i);
+        this.padShieldFlashes.delete(i);
+        continue;
+      }
+      this.padShieldLevels.set(i, next);
+      const flash = Math.max(0, (this.padShieldFlashes.get(i) ?? 0) - dt * 4.0);
+      if (flash > 0.005) this.padShieldFlashes.set(i, flash);
+      else this.padShieldFlashes.delete(i);
+
+      const ease = next * (2 - next);
+      const color = pad.kind === 'fuel' ? 0xffa62b : TELEPORT_COLOR;
+      const x0 = pad.x - 2;
+      const x1 = pad.x + pad.w + 2;
+      const cx = (x0 + x1) / 2;
+      const halfW = (x1 - x0) / 2;
+      const crestH = 58 * ease;
+      const ctrlY = pad.y - crestH * 2;
+
+      // Subtle translucent canopy fill + glowing rim.
+      g.moveTo(x0, pad.y)
+        .quadraticCurveTo(cx, ctrlY, x1, pad.y)
+        .closePath()
+        .fill({ color, alpha: (0.08 + 0.025 * pulse + 0.14 * flash) * ease });
+      g.moveTo(x0, pad.y)
+        .quadraticCurveTo(cx, ctrlY, x1, pad.y)
+        .stroke({ width: 1.5 + flash * 1.6, color, alpha: (0.52 + 0.18 * pulse + 0.35 * flash) * ease });
+      // Crisp white specular crest highlight.
+      g.moveTo(x0 + 4, pad.y - 1)
+        .quadraticCurveTo(cx, ctrlY + 3, x1 - 4, pad.y - 1)
+        .stroke({ width: 0.9, color: 0xffffff, alpha: (0.18 + 0.42 * flash) * ease });
+
+      // 3 faint rising scanlines clipped to the parabolic dome contour.
+      for (let s = 0; s < 3; s++) {
+        const u = ((this.time * 0.45 + s / 3) % 1) * 0.86 + 0.07;
+        const sy = pad.y - crestH * u;
+        const span = halfW * Math.sqrt(Math.max(0, 1 - u)) - 3;
+        if (span > 6) {
+          g.moveTo(cx - span, sy)
+            .lineTo(cx + span, sy)
+            .stroke({ width: 1, color, alpha: (0.14 + 0.22 * flash) * (1 - u * 0.5) * ease });
+        }
+      }
+    }
+  }
+
+  /** Hybrid Hyperspace Warp-Tunnel punch + Transporter materialize beam over the arrival pad. */
+  private drawTeleportFx(dt: number, watching: boolean): void {
+    const beam = this.teleportBeamGfx;
+    const flash = this.teleportFlashGfx;
+    beam.clear();
+    flash.clear();
+    const localView = this.taxiViews.get(this.localId);
+    if (!this.teleportFx) {
+      if (localView && localView.root.alpha !== 1) localView.root.alpha = 1;
+      return;
+    }
+    const fx = this.teleportFx;
+    fx.t += dt;
+    if (fx.t >= fx.dur) {
+      this.teleportFx = null;
+      if (localView) localView.root.alpha = 1;
+      return;
+    }
+    const t = fx.t;
+
+    // Phase 1 (0.00 → 0.48 s): Screen-space Hyperspace Warp Tunnel (deep indigo veil + radial star streaks + shockwave).
+    if (!watching && t < 0.52) {
+      const cx = this.vpW / 2;
+      const cy = this.vpH / 2;
+      const veilAlpha = t < 0.16 ? 0.92 : Math.max(0, 0.92 * Math.pow(1 - (t - 0.16) / 0.28, 1.7));
+      if (veilAlpha > 0.01) {
+        flash.rect(0, 0, this.vpW, this.vpH).fill({ color: 0x160a33, alpha: veilAlpha });
+      }
+      // Bright warp-core flash right at jump peak.
+      const coreAlpha = t < 0.14 ? (t / 0.14) * 0.52 : Math.max(0, 0.52 * Math.pow(1 - (t - 0.14) / 0.24, 2));
+      if (coreAlpha > 0.01) {
+        flash.rect(0, 0, this.vpW, this.vpH).fill({ color: 0xefe6ff, alpha: coreAlpha });
+      }
+      // Radial hyperspace star-streaks shooting outward from screen center.
+      const streakFade = t < 0.22 ? 1 : Math.max(0, 1 - (t - 0.22) / 0.28);
+      if (streakFade > 0.01) {
+        for (const s of fx.streaks) {
+          const rStart = s.r0 + s.speed * t;
+          const rEnd = rStart + s.len * (0.6 + t * 4.5);
+          const cos = Math.cos(s.angle);
+          const sin = Math.sin(s.angle);
+          flash
+            .moveTo(cx + cos * rStart, cy + sin * rStart)
+            .lineTo(cx + cos * rEnd, cy + sin * rEnd)
+            .stroke({ width: s.width, color: s.color, alpha: 0.85 * streakFade });
+        }
+      }
+      // Expanding shockwave ring as the warp tunnel parts.
+      if (t > 0.12) {
+        const rp = (t - 0.12) / 0.38;
+        if (rp < 1) {
+          const maxR = Math.hypot(cx, cy);
+          flash
+            .circle(cx, cy, 24 + maxR * rp)
+            .stroke({ width: 4 * (1 - rp) + 1, color: 0xd8c0ff, alpha: 0.75 * (1 - rp) });
+        }
+      }
+    }
+
+    // Phase 2 (0.22 → 1.65 s): World-space Transporter materialize beam + scan-bars + shimmering sparkles.
+    if (t >= 0.22) {
+      const bp = Math.min(1, (t - 0.22) / (fx.dur - 0.22));
+      const rampIn = Math.min(1, (t - 0.22) / 0.14);
+      const fade = rampIn * Math.pow(1 - bp, 1.5);
+      const { x, y } = fx;
+      const baseY = y + TAXI.halfH + TAXI.gearLength;
+      const beamH = 290;
+
+      // Concentric glowing transporter columns.
+      const layers: Array<[number, number, number]> = [
+        [78 * (1 - 0.35 * bp), TELEPORT_COLOR, 0.28 * fade],
+        [42 * (1 - 0.35 * bp), 0xd8c0ff, 0.46 * fade],
+        [16 * (1 - 0.5 * bp), 0xffffff, 0.72 * fade],
+      ];
+      for (const [w, color, alpha] of layers) {
+        beam.rect(x - w / 2, baseY - beamH, w, beamH).fill({ color, alpha });
+      }
+
+      // Horizontal transporter scan-bars sweeping through the cab.
+      const barW = 66 * (1 - 0.25 * bp);
+      for (let i = 0; i < 4; i++) {
+        const sy = baseY - ((t * 170 + i * 48) % 180);
+        beam.rect(x - barW / 2, sy, barW, 2.5).fill({ color: 0xffffff, alpha: 0.65 * fade });
+      }
+
+      // Shimmering transporter motes drifting upward inside the beam.
+      for (const sp of fx.sparkles) {
+        const sy = baseY - ((sp.oy + t * sp.speed) % 185);
+        const flicker = 0.45 + 0.55 * Math.abs(Math.sin(t * 26 + sp.phase));
+        const sz = (1.8 + 1.4 * flicker) * (1 - 0.35 * bp);
+        beam.rect(x + sp.ox * (1 - 0.3 * bp) - sz / 2, sy - sz / 2, sz, sz).fill({
+          color: sp.color,
+          alpha: flicker * fade,
+        });
+      }
+
+      // Double expanding rings at the pad base.
+      beam
+        .ellipse(x, baseY - 2, 24 + 54 * bp, 5 + 11 * bp)
+        .stroke({ width: 2, color: TELEPORT_COLOR, alpha: 0.85 * fade });
+      beam
+        .ellipse(x, baseY - 2, 14 + 34 * bp, 3 + 7 * bp)
+        .stroke({ width: 1.5, color: 0xffffff, alpha: 0.7 * fade });
+    }
+
+    // Taxi materialization shimmer: starts after the warp veil clears (0.30 → 1.38 s) so the eye clearly sees it form.
+    if (localView) {
+      if (t < 0.3) {
+        localView.root.alpha = 0;
+      } else if (t < 1.38) {
+        const mp = (t - 0.3) / 1.08;
+        const flutter = 0.22 * Math.sin(t * 54) * (1 - mp * 0.75);
+        localView.root.alpha = Math.max(0.06, Math.min(1, mp * mp * 0.35 + mp * 0.65 + flutter));
+      } else {
+        localView.root.alpha = 1;
+      }
+    }
   }
 
   private drawHitboxes(): void {

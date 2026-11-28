@@ -341,6 +341,56 @@ export class Sound {
     this.tone({ freq: 220, to: 90, dur: 0.15, type: 'sine', gain: 0.3 });
   }
 
+  /** Hybrid sci-fi Warp-Drive boom into classic fluttering Transporter shimmer (~1.15 s). */
+  teleport(): void {
+    const ctx = this.ctx;
+    if (!ctx || !this.master || this.muted) return;
+
+    // 1. Warp spool-up + jump boom + Doppler drop-out whoosh.
+    this.tone({ freq: 80, to: 340, dur: 0.16, type: 'sawtooth', gain: 0.14, filter: 1200 });
+    this.tone({ freq: 190, to: 36, dur: 0.42, type: 'sine', gain: 0.52, delay: 0.08 });
+    this.noiseBurst({ dur: 0.52, from: 4800, to: 240, gain: 0.28, delay: 0.06 });
+
+    // 2. Iconic fluttering Transporter shimmer (detuned high cluster + 16 Hz LFO tremolo + warm hum).
+    this.tone({ freq: 98, to: 65, dur: 1.38, type: 'triangle', gain: 0.14, filter: 380, delay: 0.2 });
+    const t0 = ctx.currentTime + 0.2;
+    const dur = 1.42;
+    const bus = ctx.createGain();
+    bus.gain.setValueAtTime(0.0001, t0);
+    bus.gain.linearRampToValueAtTime(0.11, t0 + 0.12);
+    bus.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+
+    // 16 Hz LFO flutter on the shimmer bus.
+    const lfo = ctx.createOscillator();
+    const lfoDepth = ctx.createGain();
+    lfo.type = 'sine';
+    lfo.frequency.setValueAtTime(16, t0);
+    lfo.frequency.linearRampToValueAtTime(12, t0 + dur);
+    lfoDepth.gain.value = 0.055;
+    lfo.connect(lfoDepth).connect(bus.gain);
+    lfo.start(t0);
+    lfo.stop(t0 + dur + 0.05);
+
+    const freqs = [1175, 1480, 1760, 2349];
+    for (const f of freqs) {
+      const osc = ctx.createOscillator();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(f * 0.985, t0);
+      osc.frequency.exponentialRampToValueAtTime(f * 1.015, t0 + dur * 0.45);
+      osc.frequency.exponentialRampToValueAtTime(f, t0 + dur);
+      osc.connect(bus);
+      osc.start(t0);
+      osc.stop(t0 + dur + 0.05);
+    }
+    bus.connect(this.master);
+  }
+
+  /** Soft denied double-tick when trying to use weapons inside a safe zone. */
+  weaponsLocked(): void {
+    this.tone({ freq: 220, dur: 0.045, type: 'square', gain: 0.045, filter: 1200 });
+    this.tone({ freq: 165, dur: 0.06, type: 'square', gain: 0.045, filter: 1200, delay: 0.05 });
+  }
+
   private tone(o: {
     freq: number;
     to?: number;

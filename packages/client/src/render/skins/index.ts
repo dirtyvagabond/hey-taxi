@@ -11,6 +11,18 @@ import { BATH_CAB } from './bathCab';
 import { UAP } from './uap';
 import { TACTICAL_TAXI } from './tacticalTaxi';
 import { TRAIL_RUNNER } from './trailRunner';
+import { LUNAR_LANDER } from './lunarLander';
+import { SUPERSONIC } from './supersonic';
+import { WOODY_WAGON } from './woodyWagon';
+import { HOVER_BOT } from './hoverBot';
+import { BOOGIE_VAN } from './boogieVan';
+import { SURF_BUS } from './surfBus';
+import { ICE_CREAM_CAB } from './iceCreamCab';
+import { CHECKER_CAB } from './checkerCab';
+import { STADIUM_BLIMP } from './stadiumBlimp';
+import { CHROME_ROCKET } from './chromeRocket';
+import { MINI_SUB } from './miniSub';
+import { BOOMBOX } from './boombox';
 import { mix, type SkinDef, type SkinPluginModule, type SkinSDK } from './types';
 
 export type {
@@ -39,6 +51,18 @@ const skinsList: SkinDef[] = [
   UAP,
   TACTICAL_TAXI,
   TRAIL_RUNNER,
+  LUNAR_LANDER,
+  SUPERSONIC,
+  WOODY_WAGON,
+  HOVER_BOT,
+  BOOGIE_VAN,
+  SURF_BUS,
+  ICE_CREAM_CAB,
+  CHECKER_CAB,
+  STADIUM_BLIMP,
+  CHROME_ROCKET,
+  MINI_SUB,
+  BOOMBOX,
 ];
 
 /** Every taxi skin (built-in plus any loaded runtime plug-ins), in the order the player sees them. */

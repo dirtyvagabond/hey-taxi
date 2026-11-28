@@ -11,7 +11,7 @@ import { envForceAt, pointHitsLaser, pointInGravityCore, windAt } from './env';
 import { isSolid } from './level';
 import { nextRandom } from './rng';
 import { atService } from './service';
-import { atStore, atTeleport, crash, isActive, type SimEvent, type SimState, type Taxi } from './sim';
+import { atStore, crash, inSafeZone, isActive, type SimEvent, type SimState, type Taxi } from './sim';
 
 export interface Missile {
   id: number;
@@ -253,9 +253,9 @@ export function storeItem(
   return { price: c.repairPrice * priceMultiplier, have: t.hp, cap: c.taxiMaxHp };
 }
 
-/** Can a missile see/hit this taxi? Not if it's gone, or parked safe at a store or teleport. */
+/** Can a missile see/hit this taxi? Not if it's gone, or parked in a safe zone (store or teleport). */
 export function targetable(s: SimState, t: Taxi): boolean {
-  return isActive(t) && !atStore(s, t) && !atTeleport(s, t);
+  return isActive(t) && !inSafeZone(s, t);
 }
 
 /** Cooldowns and (optional) free regeneration, then fly, steer and collide every missile. */

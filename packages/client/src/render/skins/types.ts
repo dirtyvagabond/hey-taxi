@@ -22,7 +22,19 @@ export type BuiltinSkinId =
   | 'bathCab'
   | 'uap'
   | 'tacticalTaxi'
-  | 'trailRunner';
+  | 'trailRunner'
+  | 'lunarLander'
+  | 'supersonic'
+  | 'woodyWagon'
+  | 'hoverBot'
+  | 'boogieVan'
+  | 'surfBus'
+  | 'iceCreamCab'
+  | 'checkerCab'
+  | 'stadiumBlimp'
+  | 'chromeRocket'
+  | 'miniSub'
+  | 'boombox';
 
 export type SkinId = BuiltinSkinId | (string & {});
 

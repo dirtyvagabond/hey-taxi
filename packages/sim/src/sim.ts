@@ -114,6 +114,11 @@ export function atTeleport(s: SimState, t: Taxi): boolean {
   return t.status === 'landed' && t.padIndex >= 0 && s.level.pads[t.padIndex]!.kind === 'teleport';
 }
 
+/** Parked in a safe zone (store or teleport): fully invulnerable and weapons locked. */
+export function inSafeZone(s: SimState, t: Taxi): boolean {
+  return atStore(s, t) || atTeleport(s, t);
+}
+
 /** In the level and solid (not crashed, not offstage). */
 export function isActive(t: Taxi): boolean {
   return t.status === 'flying' || t.status === 'landed';
@@ -575,9 +580,10 @@ function resolveTaxiBumps(s: SimState, ev: SimEvent[]): void {
       if (speed > 25) {
         ev.push({ type: 'taxiBump', taxiIds: [a.id, b.id], speed, x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
       }
-      // A collision like any other: each taxi loses a hull point if it was hard enough.
-      collide(s, a, 'body', speed, ev, b.id);
-      collide(s, b, 'body', speed, ev, a.id);
+      // A collision like any other: each taxi loses a hull point if it was hard enough,
+      // unless parked in a safe zone (store or teleport), where taxis are fully invulnerable.
+      if (!inSafeZone(s, a)) collide(s, a, 'body', speed, ev, b.id);
+      if (!inSafeZone(s, b)) collide(s, b, 'body', speed, ev, a.id);
     }
   }
 }
@@ -632,9 +638,10 @@ function stepTaxi(s: SimState, t: Taxi, input: number, ev: SimEvent[]): void {
   faceFor(t, input);
   if (pressed & Input.EJECT) ejectPassenger(s, t, ev);
 
-  // Landing gear: can't be toggled while resting on it.
-  if (pressed & Input.FIRE) fireMissile(s, t, ev);
-  if (pressed & Input.FLARE) deployFlares(s, t, ev);
+  // Landing gear: can't be toggled while resting on it. Weapons are locked in safe zones.
+  const safe = inSafeZone(s, t);
+  if (!safe && pressed & Input.FIRE) fireMissile(s, t, ev);
+  if (!safe && pressed & Input.FLARE) deployFlares(s, t, ev);
   if (pressed & Input.BUY_MISSILE) buy(s, t, 'missile', ev);
   if (pressed & Input.BUY_FLARE) buy(s, t, 'flare', ev);
   if (pressed & Input.BUY_REPAIR) buy(s, t, 'repair', ev);

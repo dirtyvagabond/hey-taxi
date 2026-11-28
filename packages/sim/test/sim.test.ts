@@ -5,6 +5,7 @@ import {
   createSim,
   DEFAULT_CONFIG,
   DT,
+  inSafeZone,
   Input,
   parseLevel,
   step,
@@ -629,5 +630,65 @@ describe('facing (cosmetic)', () => {
     // Both arrows at once: no change.
     run(s, 5, Input.LEFT | Input.RIGHT);
     expect(t.facing).toBe(1);
+  });
+});
+
+describe('safe zones (store & teleport)', () => {
+  const SAFE_LEVEL: LevelData = {
+    name: 'safe',
+    tileSize: 40,
+    tiles: [
+      '############',
+      '#..........#',
+      '#..........#',
+      '#..........#',
+      '#.S........#',
+      '#111.FF.TT.#',
+      '############',
+    ],
+  };
+
+  function parkedOn(kind: 'fuel' | 'teleport', playerIds = ['p1']) {
+    const s = createSim(parseLevel(SAFE_LEVEL), { playerIds });
+    const t = s.taxis[0]!;
+    const padIndex = s.level.pads.findIndex((p) => p.kind === kind);
+    const pad = s.level.pads[padIndex]!;
+    Object.assign(t, { status: 'landed', padIndex, x: pad.x + pad.w / 2, y: LANDED_Y, vx: 0, vy: 0, gear: 1, gearDown: true });
+    return { s, t };
+  }
+
+  it.each(['fuel', 'teleport'] as const)('locks missiles and flares while parked at %s', (kind) => {
+    const { s, t } = parkedOn(kind);
+    expect(inSafeZone(s, t)).toBe(true);
+    t.missiles = 3;
+    t.flares = 3;
+    const ev = step(s, { p1: Input.FIRE | Input.FLARE });
+    expect(find(ev, 'missileFired')).toBeUndefined();
+    expect(find(ev, 'flaresDeployed')).toBeUndefined();
+    expect(t.missiles).toBe(3);
+    expect(t.flares).toBe(3);
+  });
+
+  it.each(['fuel', 'teleport'] as const)('makes parked taxi invulnerable to high-speed ramming at %s', (kind) => {
+    const { s, t } = parkedOn(kind, ['p1', 'p2']);
+    const rammer = s.taxis[1]!;
+    Object.assign(rammer, {
+      status: 'flying',
+      padIndex: -1,
+      x: t.x - TAXI.halfW,
+      y: t.y,
+      vx: 300,
+      vy: 0,
+      gear: 0,
+      gearDown: false,
+      damageGraceTicks: 0,
+    });
+    t.damageGraceTicks = 0;
+    const hpBefore = t.hp;
+    const rammerHpBefore = rammer.hp;
+    step(s, { p1: 0, p2: 0 });
+    expect(t.hp).toBe(hpBefore);
+    expect(t.status).toBe('landed');
+    expect(rammer.hp).toBeLessThan(rammerHpBefore);
   });
 });

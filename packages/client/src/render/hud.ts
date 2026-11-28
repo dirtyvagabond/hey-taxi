@@ -3,6 +3,7 @@ import {
   atService,
   atStore,
   gravityZoneAt,
+  inSafeZone,
   isActive,
   landingMaxVy,
   riderOf,
@@ -95,7 +96,7 @@ export class Hud {
   private pauseBg = new Graphics();
   private pauseTitle!: Text;
   private pauseSub!: Text;
-  private pauseButtons = new Container();
+  private pauseMenu = new C64Menu({ fontSize: 13, rowHeight: 30, defaultHighlight: C64.accent });
   private pauseHint!: Text;
   private card = new Container();
   private cardBg = new Graphics();
@@ -107,12 +108,9 @@ export class Hud {
     wordWrap: true,
     wordWrapWidth: VIEW_W - 160,
   });
-  private cardButtons = new Container();
+  private cardMenu = new C64Menu({ fontSize: 13, rowHeight: 30, defaultHighlight: C64.accent });
   private cardFooter = makeC64Text('', { fontSize: 10, fill: C64.dim });
   private flashTime = 0;
-  private menu: Container | null = null;
-  private menuItems: Text[] = [];
-  private menuLabels: string[] = [];
 
   constructor() {
     const bg = new Graphics()
@@ -138,9 +136,9 @@ export class Hud {
     this.pauseTitle.anchor.set(0.5);
     this.pauseSub = makeC64Text('', { fontSize: 11, fill: C64.dim, letterSpacing: 1 });
     this.pauseSub.anchor.set(0.5);
-    this.pauseHint = makeC64Text('P / ESC TO RESUME · Q FOR SERVER MENU', { fontSize: 10, fill: C64.dim });
+    this.pauseHint = makeC64Text('↑↓ SELECT · ENTER · ESC RESUME', { fontSize: 10, fill: C64.dim });
     this.pauseHint.anchor.set(0.5);
-    this.pauseLayer.addChild(dim, this.pauseBg, this.pauseTitle, this.pauseSub, this.pauseButtons, this.pauseHint);
+    this.pauseLayer.addChild(dim, this.pauseBg, this.pauseTitle, this.pauseSub, this.pauseMenu.root, this.pauseHint);
     this.pauseLayer.visible = false;
     this.overlay.addChild(this.pauseLayer);
 
@@ -150,7 +148,7 @@ export class Hud {
       this.cardBg,
       this.cardTitle,
       this.cardBody,
-      this.cardButtons,
+      this.cardMenu.root,
       this.cardFooter,
     );
     this.card.visible = false;
@@ -194,30 +192,104 @@ export class Hud {
     paused: boolean,
     opts: { subtitle?: string; hint?: string; actions?: HudAction[] } | string = {},
   ): void {
+    const wasPaused = this.pauseLayer.visible;
     this.pauseLayer.visible = paused;
     const cfg = typeof opts === 'string' ? { hint: opts } : opts;
-    const hint = (cfg.hint ?? 'P / ESC to resume · Q for server menu').toUpperCase();
+    const hint = (cfg.hint ?? '↑↓ SELECT · ENTER · ESC RESUME').toUpperCase();
     const sub = (cfg.subtitle ?? '').toUpperCase();
     if (this.pauseSub.text !== sub) this.pauseSub.text = sub;
     if (this.pauseHint.text !== hint) this.pauseHint.text = hint;
     if (paused && cfg.actions) {
-      const btnRowW = renderActionRow(this.pauseButtons, cfg.actions);
+      if (!wasPaused) blurActiveElement();
+      this.pauseMenu.setItems(
+        cfg.actions.map((a) => ({
+          label: a.label.toUpperCase(),
+          color: a.danger ? C64.dangerLight : C64.text,
+          highlightColor: a.danger ? C64.dangerLight : C64.accent,
+          enabled: true,
+          onSelect: a.onClick,
+        })),
+        !wasPaused,
+      );
+      const menuW = this.pauseMenu.contentWidth;
+      const menuH = this.pauseMenu.contentHeight;
       const w = Math.min(
         VIEW_W - 48,
-        Math.max(540, this.pauseTitle.width + 80, this.pauseSub.width + 80, btnRowW + 72, this.pauseHint.width + 80),
+        Math.max(480, this.pauseTitle.width + 88, this.pauseSub.width + 88, menuW + 100, this.pauseHint.width + 88),
       );
-      const h = sub ? 228 : 200;
+      const topPad = sub ? 106 : 82;
+      const h = topPad + menuH + 56;
       const x = (VIEW_W - w) / 2;
       const y = (VIEW_H - h) / 2;
       drawC64Frame(this.pauseBg, x, y, w, h, C64.bezel);
-      this.pauseTitle.position.set(VIEW_W / 2, y + 48);
+      this.pauseTitle.position.set(VIEW_W / 2, y + 42);
       this.pauseSub.visible = Boolean(sub);
-      this.pauseSub.position.set(VIEW_W / 2, y + 82);
-      this.pauseButtons.position.set(VIEW_W / 2, y + (sub ? 132 : 112));
-      this.pauseHint.position.set(VIEW_W / 2, y + h - 32);
+      this.pauseSub.position.set(VIEW_W / 2, y + 74);
+      this.pauseMenu.root.position.set(Math.round((VIEW_W - menuW) / 2), y + topPad);
+      this.pauseHint.position.set(VIEW_W / 2, y + h - 28);
     } else if (!paused) {
-      this.pauseButtons.removeChildren().forEach((c) => c.destroy({ children: true }));
+      this.pauseMenu.clear();
     }
+  }
+
+  get isCardOpen(): boolean {
+    return this.card.visible;
+  }
+
+  get isShopOpen(): boolean {
+    return this.shop?.root.visible === true;
+  }
+
+  get isTeleportOpen(): boolean {
+    return this.teleportPanel?.root.visible === true;
+  }
+
+  movePause(delta: number): void {
+    if (this.pauseLayer.visible) this.pauseMenu.move(delta);
+  }
+
+  confirmPause(): void {
+    if (this.pauseLayer.visible) this.pauseMenu.confirm();
+  }
+
+  moveCard(delta: number): void {
+    if (this.card.visible) this.cardMenu.move(delta);
+  }
+
+  confirmCard(): void {
+    if (this.card.visible) this.cardMenu.confirm();
+  }
+
+  moveShop(delta: number): void {
+    if (this.shop?.root.visible) this.shop.menu.move(delta);
+  }
+
+  confirmShop(): void {
+    if (this.shop?.root.visible) this.shop.menu.confirm();
+  }
+
+  resetShopSelection(): void {
+    this.shop?.menu.resetSelection();
+  }
+
+  moveTeleport(delta: number): void {
+    if (this.teleportPanel?.root.visible) this.teleportPanel.menu.move(delta);
+  }
+
+  confirmTeleport(): void {
+    if (this.teleportPanel?.root.visible) this.teleportPanel.menu.confirm();
+  }
+
+  resetTeleportSelection(): void {
+    this.teleportPanel?.menu.resetSelection();
+  }
+
+  /** Advance the C64 flashing cursor timer for all visible C64 menus. */
+  tickMenus(dt: number): void {
+    if (this.pauseLayer.visible) this.pauseMenu.tick(dt);
+    if (this.card.visible) this.cardMenu.tick(dt);
+    if (this.shop?.root.visible) this.shop.menu.tick(dt);
+    if (this.teleportPanel?.root.visible) this.teleportPanel.menu.tick(dt);
   }
 
   /**
@@ -445,10 +517,7 @@ export class Hud {
     wide?: boolean;
     actions?: HudAction[];
   }): void {
-    const bezelColor =
-      o.color === HUD_COLORS.bad ? C64.danger : o.color === HUD_COLORS.warn ? C64.accent : C64.bezel;
-    const titleColor =
-      o.color === HUD_COLORS.bad ? C64.dangerLight : o.color === HUD_COLORS.warn ? C64.accent : C64.accent;
+    const titleColor = o.color === HUD_COLORS.bad ? C64.dangerLight : C64.accent;
     this.cardTitle.text = (o.kicker ? `${o.kicker}\n${o.title}` : o.title).toUpperCase();
     this.cardTitle.style.fill = titleColor;
     this.cardBodySize ??= Number(this.cardBody.style.fontSize);
@@ -457,101 +526,50 @@ export class Hud {
     this.cardBody.style.align = o.align ?? 'center';
     this.cardFooter.text = o.footer.toUpperCase();
     const hasActions = !!o.actions?.length;
-    const btnRowW = hasActions ? renderActionRow(this.cardButtons, o.actions!) : 0;
-    if (!hasActions) this.cardButtons.removeChildren().forEach((c) => c.destroy({ children: true }));
-    const btnBlockH = hasActions ? 52 : 0;
+    if (hasActions) {
+      this.cardMenu.setItems(
+        o.actions!.map((a) => ({
+          label: a.label.toUpperCase(),
+          color: a.danger ? C64.dangerLight : C64.text,
+          highlightColor: a.danger ? C64.dangerLight : C64.accent,
+          enabled: true,
+          onSelect: a.onClick,
+        })),
+        true,
+      );
+    } else {
+      this.cardMenu.clear();
+    }
+    const menuW = hasActions ? this.cardMenu.contentWidth : 0;
+    const menuH = hasActions ? this.cardMenu.contentHeight + 18 : 0;
+    const footerH = this.cardFooter.text ? this.cardFooter.height + 20 : 0;
     const w = Math.min(
       VIEW_W - 48,
-      Math.max(580, this.cardBody.width + 88, this.cardTitle.width + 88, btnRowW + 88, this.cardFooter.width + 88),
+      Math.max(540, this.cardBody.width + 88, this.cardTitle.width + 88, menuW + 100, this.cardFooter.width + 88),
     );
-    const h = 38 + this.cardTitle.height + 24 + this.cardBody.height + btnBlockH + 24 + this.cardFooter.height + 34;
+    const h = 36 + this.cardTitle.height + 22 + this.cardBody.height + menuH + footerH + 30;
     const x = (VIEW_W - w) / 2;
     const y = (VIEW_H - h) / 2;
-    drawC64Frame(this.cardBg, x, y, w, h, bezelColor);
-    this.cardTitle.position.set(VIEW_W / 2, y + 36);
-    this.cardBody.position.set(VIEW_W / 2, this.cardTitle.y + this.cardTitle.height + 24);
-    this.cardButtons.position.set(VIEW_W / 2, this.cardBody.y + this.cardBody.height + 34);
-    this.cardFooter.position.set(VIEW_W / 2, this.cardBody.y + this.cardBody.height + btnBlockH + 24);
+    drawC64Frame(this.cardBg, x, y, w, h, C64.bezel);
+    this.cardTitle.position.set(VIEW_W / 2, y + 34);
+    this.cardBody.position.set(VIEW_W / 2, this.cardTitle.y + this.cardTitle.height + 22);
+    this.cardMenu.root.position.set(Math.round((VIEW_W - menuW) / 2), this.cardBody.y + this.cardBody.height + 22);
+    this.cardFooter.visible = Boolean(this.cardFooter.text);
+    this.cardFooter.position.set(VIEW_W / 2, this.cardBody.y + this.cardBody.height + menuH + 16);
     this.card.visible = true;
     this.flashTime = 0;
+    if (hasActions) blurActiveElement();
   }
 
   private cardBodySize: number | undefined;
 
   hideCard(): void {
     this.card.visible = false;
-  }
-
-  /** Title screen with a vertical list of options (mouse or keyboard). */
-  showMenu(
-    items: string[],
-    selected: number,
-    onPick: (index: number) => void,
-    onHover?: (index: number) => void,
-    /** A problem to point out under the menu (e.g. a save that couldn't be loaded). */
-    notice?: string | null,
-  ): void {
-    this.hideMenu();
-    this.hideCard();
-    const menu = new Container();
-    menu.addChild(new Graphics().rect(0, 0, VIEW_W, VIEW_H).fill({ color: 0x05070f, alpha: 0.72 }));
-    const title = makeText('HEY, TAXI!', { fontSize: 56, fill: 0xffc83d, letterSpacing: 6 });
-    title.anchor.set(0.5);
-    title.position.set(VIEW_W / 2, VIEW_H / 2 - 150);
-    const sub = makeText('fly · land · deliver', { fontSize: 16, fill: HUD_COLORS.dim, letterSpacing: 4 });
-    sub.anchor.set(0.5);
-    sub.position.set(VIEW_W / 2, VIEW_H / 2 - 100);
-    menu.addChild(title, sub);
-    this.menuItems = items.map((label, i) => {
-      const t = makeText(label, { fontSize: 24, fill: HUD_COLORS.text });
-      t.anchor.set(0.5);
-      t.position.set(VIEW_W / 2, VIEW_H / 2 - 20 + i * 48);
-      t.eventMode = 'static';
-      t.cursor = 'pointer';
-      t.on('pointerover', () => {
-        this.setMenuSelection(i);
-        onHover?.(i);
-      });
-      t.on('pointertap', () => onPick(i));
-      menu.addChild(t);
-      return t;
-    });
-    this.menuLabels = items;
-    const hint = makeText('↑ ↓ to choose · ENTER to select', { fontSize: 13, fill: HUD_COLORS.dim });
-    hint.anchor.set(0.5);
-    hint.position.set(VIEW_W / 2, VIEW_H / 2 - 20 + items.length * 48 + 30);
-    menu.addChild(hint);
-    if (notice) {
-      const n = makeText(notice, {
-        fontSize: 13,
-        fill: HUD_COLORS.bad,
-        align: 'center',
-        wordWrap: true,
-        wordWrapWidth: VIEW_W - 160,
-        breakWords: true,
-      });
-      n.anchor.set(0.5, 0);
-      n.position.set(VIEW_W / 2, VIEW_H / 2 - 20 + items.length * 48 + 64);
-      menu.addChild(n);
-    }
-    this.menu = menu;
-    this.overlay.addChild(menu);
-    this.setMenuSelection(selected);
-    this.flashTime = 0;
-  }
-
-  setMenuSelection(index: number): void {
-    this.menuItems.forEach((t, i) => {
-      const on = i === index;
-      t.text = on ? `▶  ${this.menuLabels[i]}  ◀` : this.menuLabels[i]!;
-      t.style.fill = on ? 0xffc83d : HUD_COLORS.text;
-    });
+    this.cardMenu.clear();
   }
 
   hideMenu(): void {
-    this.menu?.destroy({ children: true });
-    this.menu = null;
-    this.menuItems = [];
+    // Legacy no-op kept for callers.
   }
 
   /** Center of the bar: who to pick up, or where to go and what they'll pay. */
@@ -601,13 +619,14 @@ export class Hud {
     }
   }
 
-  /** Missile and flare counts right of the fuel label: icon + number each. */
+  /** Missile and flare counts right of the fuel label: icon + number each (dimmed in safe zones). */
   private drawAmmo(t: Taxi, sim: SimState): void {
     const g = this.ammo;
     g.clear();
     const y = 10;
+    const safe = inSafeZone(sim, t);
     // Missile icon at x=120.
-    const mc = t.missiles > 0 || sim.config.missilesUnlimited ? AMMO_COLORS.missile : HUD_COLORS.bad;
+    const mc = safe ? HUD_COLORS.dim : t.missiles > 0 || sim.config.missilesUnlimited ? AMMO_COLORS.missile : HUD_COLORS.bad;
     const mx = 120;
     g.rect(mx + 2, y + 5, 5, 11).fill(mc);
     g.poly([mx + 2, y + 5, mx + 7, y + 5, mx + 4.5, y]).fill(mc);
@@ -615,7 +634,7 @@ export class Hud {
     g.poly([mx + 9, y + 16, mx + 7, y + 12, mx + 7, y + 16]).fill(mc);
     set(this.ammoText, sim.config.missilesUnlimited ? '∞' : `${t.missiles}`, mc);
     // Flare icon (a starburst) at x=166.
-    const fc = t.flares > 0 ? AMMO_COLORS.flare : HUD_COLORS.bad;
+    const fc = safe ? HUD_COLORS.dim : t.flares > 0 ? AMMO_COLORS.flare : HUD_COLORS.bad;
     const fx = 170;
     const fy = y + 8;
     for (let i = 0; i < 4; i++) {
@@ -643,35 +662,53 @@ export class Hud {
       if (this.teleportPanel) this.teleportPanel.root.visible = false;
       return;
     }
-    if (!this.teleportPanel || this.teleportPanel.rows.length !== destinations.length) {
+    if (!this.teleportPanel || this.teleportPanel.count !== destinations.length) {
       this.teleportPanel?.root.destroy({ children: true });
       this.teleportPanel = buildTeleport(destinations.length, (i) => this.teleportPanel?.pick(i));
       this.overlay.addChildAt(this.teleportPanel.root, this.overlay.getChildIndex(this.pauseLayer));
     }
     const panel = this.teleportPanel;
+    const justOpened = !panel.root.visible;
     panel.root.visible = true;
     panel.pick = (i) => {
       const d = destinations[i];
       if (d) onPick(d.id);
     };
     destinations.forEach((d, i) => {
-      const line =
-        `[${i + 1}] ${d.name.toUpperCase().padEnd(18)} x${d.fareMultiplier.toFixed(2)}  ` +
-        `${d.size}x · ${d.waiting} WAIT · ${d.taxis} TAXI${d.taxis === 1 ? '' : 'S'}`;
       const wanted = rider?.destination.localeId === d.id;
-      panel.rows[i]!.setRow(line, boarding ? C64.disabled : wanted ? C64.good : C64.text, !boarding);
+      const tag = wanted ? ' ★' : '';
+      const line =
+        `${i + 1}. ${d.name.toUpperCase().padEnd(18)} x${d.fareMultiplier.toFixed(2)}  ` +
+        `${d.size}x · ${d.waiting} WAIT · ${d.taxis} TAXI${d.taxis === 1 ? '' : 'S'}${tag}`;
+      panel.menu.updateRow(
+        i,
+        line,
+        boarding ? C64.disabled : wanted ? C64.good : C64.text,
+        !boarding,
+        wanted ? C64.good : C64.accent,
+      );
     });
+    if (justOpened) {
+      blurActiveElement();
+      const reqIdx = rider ? destinations.findIndex((d) => d.id === rider.destination.localeId) : -1;
+      if (reqIdx >= 0 && !boarding) panel.menu.select(reqIdx);
+      else panel.menu.resetSelection();
+    }
     set(
       panel.note,
-      boarding ? 'PASSENGER BOARDING' : rider ? 'PASSENGER REQUEST: ' + localeName(rider.destination.localeId).toUpperCase() : 'FREE TRAVEL · YOU KEEP EVERYTHING YOU HAVE',
+      boarding
+        ? 'PASSENGER BOARDING'
+        : rider
+          ? `REQUEST: ${localeName(rider.destination.localeId).toUpperCase()}`
+          : 'SAFE ZONE · FREE TRAVEL',
       boarding ? C64.accent : C64.good,
     );
   }
 
   /**
    * Store dialog, shown while the player is parked at a convenience store or docked with
-   * a mobile service craft. The game keeps running; items are bought with keys 1–5 or by
-   * clicking. `onBuy` receives the row clicked.
+   * a mobile service craft. The game keeps running; items are bought with ↑↓ + Enter, keys 1–5,
+   * or clicking. `onBuy` receives the row chosen.
    */
   updateShop(t: Taxi, sim: SimState, open: boolean, onBuy: (item: ShopAction) => void, service = false): void {
     if (!open) {
@@ -684,30 +721,14 @@ export class Hud {
       this.overlay.addChildAt(this.shop.root, this.overlay.getChildIndex(this.pauseLayer));
     }
     const shop = this.shop;
+    const justOpened = !shop.root.visible;
     shop.root.visible = true;
     const c = sim.config;
     const mult = service ? c.servicePriceMultiplier : 1;
-    const bezel = service ? C64.danger : C64.bezel;
-    if (shop.isService !== service) {
-      shop.isService = service;
-      drawShopFrame(shop.bg, bezel);
-    }
     set(
       shop.title,
-      service ? `+ RESCUE SERVICE · ${mult}x RATES` : 'CORNER STORE · OPEN 24/7',
+      service ? `+ RESCUE SERVICE · ${mult}X RATES` : 'CORNER STORE · SAFE ZONE',
       service ? C64.dangerLight : C64.accent,
-    );
-    set(
-      shop.safe,
-      service
-        ? `RESCUE AMBULANCE · ${mult}x NORMAL STORE PRICES`
-        : "SAFE ZONE: MISSILES CAN'T SEE YOU WHILE PARKED HERE",
-      service ? C64.accent : C64.good,
-    );
-    set(
-      shop.leave,
-      service ? 'PRESS 1-5 OR CLICK TO BUY · TAKE OFF TO DISMISS' : 'PRESS 1-5 OR CLICK TO BUY · TAKE OFF TO LEAVE',
-      C64.dim,
     );
     const names: Record<StoreItem, string> = {
       missile: 'MISSILE    ',
@@ -724,10 +745,10 @@ export class Hud {
       const status =
         item === 'repair' ? `HULL ${have}/${cap}` : item === 'gas' ? `TANK ${have.toFixed(1)}/${cap}G` : `HAVE ${have}/${cap}`;
       const why = full ? (item === 'repair' ? 'HULL FULL' : item === 'gas' ? 'TANK FULL' : 'FULL') : broke ? "CAN'T AFFORD" : status;
-      const line = `[${i + 1}] ${names[item]} $${price.toFixed(2).padStart(5)}  ${why}`;
-      shop.rows[item].setRow(line, ok ? C64.text : C64.disabled, ok);
+      const line = `${i + 1}. ${names[item]} $${price.toFixed(2).padStart(5)}  ${why}`;
+      shop.menu.updateRow(i, line, ok ? C64.text : C64.disabled, ok, C64.accent);
     });
-    // [5] Fill up: the whole tank, or as much as you can afford.
+    // 5. Fill up: the whole tank, or as much as you can afford.
     const gallonPrice = c.gallonPrice * mult;
     const missing = (c.fuelMax - t.fuel) / c.fuelPerGallon;
     const gallons = Math.min(missing, Math.max(0, t.cents / 100) / gallonPrice);
@@ -737,13 +758,15 @@ export class Hud {
         : gallons < 0.005
           ? "CAN'T AFFORD"
           : `${gallons.toFixed(1)}G  $${(gallons * gallonPrice).toFixed(2)}${gallons < missing - 0.005 ? ' (MAX)' : ''}`;
-    shop.rows.fill.setRow(`[5] FILL UP     ${fillText}`, gallons >= 0.005 ? C64.text : C64.disabled, gallons >= 0.005);
-    const pct = Math.round((t.fuel / c.fuelMax) * 100);
-    const fuelColor = pct >= 100 ? C64.good : pct < 20 ? C64.dangerLight : C64.accent;
-    set(shop.fuel, pct >= 100 ? 'TANK FULL' : `TANK ${pct}% · GAS ISN'T AUTOMATIC: BUY IT HERE`, fuelColor);
+    const canFill = gallons >= 0.005;
+    shop.menu.updateRow(4, `5. FILL UP     ${fillText}`, canFill ? C64.text : C64.disabled, canFill, C64.accent);
+    if (justOpened) {
+      blurActiveElement();
+      shop.menu.resetSelection();
+    }
   }
 
-  update(t: Taxi, sim: SimState, dt: number): void {
+  update(t: Taxi, sim: SimState, dt: number, padMenuOpen = false): void {
     const c = sim.config;
 
     const frac = Math.max(0, Math.min(1, t.fuel / c.fuelMax));
@@ -825,7 +848,7 @@ export class Hud {
       const pad = sim.level.pads[t.padIndex];
       const svc = serviceCraftFor(sim, t.id);
       if (atService(sim, t)) {
-        status = '+ RESCUE SERVICE (1–5)';
+        status = padMenuOpen ? '+ RESCUE SERVICE' : '+ RESCUE · ENTER MENU';
         statusColor = RESCUE_WHITE;
       } else if (svc) {
         status = '+ RESCUE EN ROUTE…';
@@ -836,13 +859,17 @@ export class Hud {
       } else {
         status = pad
           ? pad.kind === 'fuel'
-            ? 'AT THE STORE'
+            ? padMenuOpen
+              ? 'AT THE STORE'
+              : 'STORE · ENTER MENU'
             : pad.kind === 'teleport'
-              ? 'AT THE TELEPORT'
+              ? padMenuOpen
+                ? 'AT THE TELEPORT'
+                : 'TELEPORT · ENTER MENU'
               : `ON PAD ${pad.label} · R RESCUE`
           : 'LANDED · R RESCUE';
         statusColor = pad?.kind === 'fuel' ? 0xff9f1c : pad?.kind === 'teleport' ? TELEPORT_COLOR : HUD_COLORS.info;
-        if (pad?.kind === 'fuel' && t.fuel < c.fuelMax) status = 'BUY GAS (4/5)';
+        if (pad?.kind === 'fuel' && t.fuel < c.fuelMax && !padMenuOpen) status = 'BUY GAS · ENTER MENU';
       }
     }
     set(this.statusText, status, statusColor);
@@ -866,32 +893,24 @@ const STORE_ITEMS: StoreItem[] = ['missile', 'flare', 'repair', 'gas'];
 /** A store-panel row: one of the store items, or "fill the tank". */
 export type ShopAction = StoreItem | 'fill';
 
-interface PanelRow {
-  text: Text;
-  setRow(label: string, color: number, enabled: boolean): void;
-}
-
 interface Shop {
   root: Container;
-  bg: Graphics;
   title: Text;
-  rows: Record<ShopAction, PanelRow>;
-  fuel: Text;
-  safe: Text;
-  leave: Text;
-  isService: boolean;
+  menu: C64Menu;
 }
 
 export const TELEPORT_COLOR = PALETTE.teleport;
 
 interface TeleportPanel {
   root: Container;
-  rows: PanelRow[];
+  count: number;
+  menu: C64Menu;
   note: Text;
   pick: (index: number) => void;
 }
 
 const C64_BEZEL = 10;
+const C64_BLINK_PERIOD = 0.33;
 
 /** Draw a sharp 0px-radius Commodore 64 double-bezel panel with optional header divider. */
 function drawC64Frame(g: Graphics, x: number, y: number, w: number, h: number, bezelColor: number, headerH?: number): void {
@@ -905,87 +924,240 @@ function drawC64Frame(g: Graphics, x: number, y: number, w: number, h: number, b
   }
 }
 
-function makePanelRow(parent: Container, width: number, ry: number, onClick: () => void): PanelRow {
-  let enabled = true;
-  let hovered = false;
-  let baseColor: number = C64.text;
-  const hit = new Graphics();
-  const text = makeC64Text('', { fontSize: 11, fill: C64.text });
-  text.position.set(C64_BEZEL + 14, ry);
+interface C64MenuItemSpec {
+  label: string;
+  color: number;
+  highlightColor?: number;
+  enabled: boolean;
+  onSelect: () => void;
+}
 
-  const redraw = () => {
-    const active = enabled && hovered;
-    hit.clear();
-    if (active) {
-      hit.rect(C64_BEZEL + 8, ry - 5, width - (C64_BEZEL + 8) * 2, 22).fill({ color: C64.accent });
-    } else {
-      hit.rect(C64_BEZEL + 8, ry - 5, width - (C64_BEZEL + 8) * 2, 22).fill({ color: 0xffffff, alpha: 0.001 });
+interface C64MenuRow {
+  label: string;
+  color: number;
+  highlightColor: number;
+  enabled: boolean;
+  onSelect: () => void;
+  hit: Graphics;
+  text: Text;
+  cursorBg: Graphics;
+  cursorChar: Text;
+  y: number;
+}
+
+/**
+ * Reusable vertical C64 menu with keyboard ↑/↓ selection, mouse hover/click,
+ * and an authentic blinking reverse-video cursor on the first character of the highlighted row.
+ */
+class C64Menu {
+  readonly root = new Container();
+  private rows: C64MenuRow[] = [];
+  private selectedIndex = 0;
+  private blinkTimer = 0;
+  private blinkOn = true;
+  private readonly fontSize: number;
+  private readonly rowHeight: number;
+  private readonly fixedWidth?: number;
+  private readonly defaultHighlight: number;
+
+  constructor(opts: { fontSize: number; rowHeight: number; fixedWidth?: number; defaultHighlight?: number }) {
+    this.fontSize = opts.fontSize;
+    this.rowHeight = opts.rowHeight;
+    this.fixedWidth = opts.fixedWidth;
+    this.defaultHighlight = opts.defaultHighlight ?? C64.accent;
+  }
+
+  get contentWidth(): number {
+    if (this.fixedWidth !== undefined) return this.fixedWidth;
+    return this.rows.reduce((max, r) => Math.max(max, Math.ceil(r.text.width)), 0);
+  }
+
+  get contentHeight(): number {
+    return this.rows.length * this.rowHeight;
+  }
+
+  clear(): void {
+    this.root.removeChildren().forEach((c) => c.destroy({ children: true }));
+    this.rows = [];
+    this.selectedIndex = 0;
+  }
+
+  setItems(items: C64MenuItemSpec[], resetIndex = true): void {
+    const prevIdx = this.selectedIndex;
+    this.clear();
+    items.forEach((item, i) => {
+      const y = i * this.rowHeight;
+      const hit = new Graphics();
+      const text = makeC64Text(item.label, { fontSize: this.fontSize, fill: item.enabled ? item.color : C64.disabled });
+      text.position.set(0, y);
+      const cursorBg = new Graphics();
+      cursorBg.visible = false;
+      const cursorChar = makeC64Text(item.label.charAt(0), { fontSize: this.fontSize, fill: C64.screen });
+      cursorChar.position.set(0, y);
+      cursorChar.visible = false;
+
+      const row: C64MenuRow = {
+        label: item.label,
+        color: item.color,
+        highlightColor: item.highlightColor ?? this.defaultHighlight,
+        enabled: item.enabled,
+        onSelect: item.onSelect,
+        hit,
+        text,
+        cursorBg,
+        cursorChar,
+        y,
+      };
+      hit.eventMode = 'static';
+      hit.cursor = item.enabled ? 'pointer' : 'default';
+      hit.on('pointerover', () => {
+        if (!row.enabled) return;
+        this.select(i);
+      });
+      hit.on('pointertap', () => {
+        if (!row.enabled) return;
+        this.select(i);
+        row.onSelect();
+      });
+      this.root.addChild(hit, text, cursorBg, cursorChar);
+      this.rows.push(row);
+    });
+    const hitW = Math.max(this.contentWidth + 16, 120);
+    for (const row of this.rows) {
+      row.hit.clear().rect(-8, row.y - 5, hitW, this.rowHeight - 2).fill({ color: 0xffffff, alpha: 0.001 });
     }
-    const targetFill = active ? C64.screen : baseColor;
-    if (text.style.fill !== targetFill) text.style.fill = targetFill;
-  };
-  redraw();
-  hit.eventMode = 'static';
-  hit.cursor = 'pointer';
-  hit.on('pointerover', () => {
-    hovered = true;
-    redraw();
-  });
-  hit.on('pointerout', () => {
-    hovered = false;
-    redraw();
-  });
-  hit.on('pointertap', () => {
-    if (enabled) onClick();
-  });
-  parent.addChild(hit, text);
-  return {
-    text,
-    setRow(label: string, color: number, nextEnabled: boolean) {
-      if (text.text !== label) text.text = label;
-      const changed = baseColor !== color || enabled !== nextEnabled;
-      baseColor = color;
-      enabled = nextEnabled;
-      if (changed) {
-        hit.cursor = enabled ? 'pointer' : 'default';
-        redraw();
+    this.selectedIndex = resetIndex ? this.firstEnabledIndex() : Math.min(prevIdx, Math.max(0, this.rows.length - 1));
+    this.blinkTimer = 0;
+    this.blinkOn = true;
+    this.refresh();
+  }
+
+  updateRow(index: number, label: string, color: number, enabled: boolean, highlightColor?: number): void {
+    const row = this.rows[index];
+    if (!row) return;
+    let changed = false;
+    if (row.label !== label) {
+      row.label = label;
+      row.text.text = label;
+      const ch = label.charAt(0);
+      if (row.cursorChar.text !== ch) row.cursorChar.text = ch;
+      changed = true;
+    }
+    const nextHi = highlightColor ?? this.defaultHighlight;
+    if (row.color !== color || row.enabled !== enabled || row.highlightColor !== nextHi) {
+      row.color = color;
+      row.enabled = enabled;
+      row.highlightColor = nextHi;
+      row.hit.cursor = enabled ? 'pointer' : 'default';
+      changed = true;
+    }
+    if (changed) {
+      if (index === this.selectedIndex && !enabled) {
+        const next = this.nextEnabledFrom(index, 1);
+        if (next !== -1) this.selectedIndex = next;
       }
-    },
-  };
+      this.refresh();
+    }
+  }
+
+  select(index: number): void {
+    if (index < 0 || index >= this.rows.length) return;
+    this.selectedIndex = index;
+    this.blinkTimer = 0;
+    this.blinkOn = true;
+    this.refresh();
+  }
+
+  resetSelection(): void {
+    this.select(this.firstEnabledIndex());
+  }
+
+  move(delta: number): void {
+    if (!this.rows.length || !delta) return;
+    const step = delta > 0 ? 1 : -1;
+    const next = this.nextEnabledFrom(this.selectedIndex, step);
+    if (next !== -1) this.select(next);
+  }
+
+  confirm(): void {
+    const row = this.rows[this.selectedIndex];
+    if (row?.enabled) row.onSelect();
+  }
+
+  tick(dt: number): void {
+    if (!this.rows.length) return;
+    this.blinkTimer += dt;
+    if (this.blinkTimer >= C64_BLINK_PERIOD) {
+      this.blinkTimer %= C64_BLINK_PERIOD;
+      this.blinkOn = !this.blinkOn;
+      this.refresh();
+    }
+  }
+
+  private firstEnabledIndex(): number {
+    const idx = this.rows.findIndex((r) => r.enabled);
+    return idx >= 0 ? idx : 0;
+  }
+
+  private nextEnabledFrom(start: number, step: 1 | -1): number {
+    const n = this.rows.length;
+    for (let k = 1; k <= n; k++) {
+      const idx = (start + step * k + n) % n;
+      if (this.rows[idx]!.enabled) return idx;
+    }
+    return -1;
+  }
+
+  private refresh(): void {
+    const cell = this.fontSize;
+    this.rows.forEach((row, i) => {
+      const selected = i === this.selectedIndex && row.enabled;
+      const fill = !row.enabled ? C64.disabled : selected ? row.highlightColor : row.color;
+      if (row.text.style.fill !== fill) row.text.style.fill = fill;
+      const showCursor = selected && this.blinkOn && row.label.length > 0;
+      row.cursorBg.visible = showCursor;
+      row.cursorChar.visible = showCursor;
+      if (showCursor) {
+        row.cursorBg.clear().rect(-1, row.y - 1, cell + 2, cell + 2).fill(row.highlightColor);
+      }
+    });
+  }
 }
 
 /** C64-styled teleport panel at the right of the playfield. Non-modal: the game keeps running. */
 function buildTeleport(count: number, onPick: (index: number) => void): TeleportPanel {
-  const W = 740;
-  const H = 160 + count * 28;
+  const W = 710;
+  const H = 128 + count * 28;
   const root = new Container();
   root.position.set(VIEW_W - W - 24, Math.max(72, Math.min(200, VIEW_H - H - 36)));
   const bg = new Graphics();
   drawC64Frame(bg, 0, 0, W, H, C64.bezel, 34);
   const title = makeC64Text('TELEPORT · TRAVEL TO', { fontSize: 13, fill: C64.accent, letterSpacing: 1 });
   title.position.set(C64_BEZEL + 14, C64_BEZEL + 10);
-  root.addChild(bg, title);
-  const rows = Array.from({ length: count }, (_, i) => makePanelRow(root, W, C64_BEZEL + 48 + i * 28, () => onPick(i)));
-  const y = C64_BEZEL + 48 + count * 28 + 10;
+  const menu = new C64Menu({ fontSize: 11, rowHeight: 28, fixedWidth: W - (C64_BEZEL + 14) * 2 });
+  menu.root.position.set(C64_BEZEL + 14, C64_BEZEL + 48);
+  menu.setItems(
+    Array.from({ length: count }, (_, i) => ({
+      label: `${i + 1}.`,
+      color: C64.text,
+      enabled: true,
+      onSelect: () => onPick(i),
+    })),
+  );
+  const y = C64_BEZEL + 48 + count * 28 + 8;
   const note = makeC64Text('', { fontSize: 10, fill: C64.good });
   note.position.set(C64_BEZEL + 14, y);
-  const safe = makeC64Text("SAFE ZONE: MISSILES CAN'T SEE YOU WHILE PARKED HERE", { fontSize: 10, fill: C64.good });
-  safe.position.set(C64_BEZEL + 14, y + 22);
-  const keys = makeC64Text(`PRESS ${count > 1 ? `1-${count}` : '1'} OR CLICK TO TRAVEL · TAKE OFF TO STAY`, {
+  const keys = makeC64Text(`↑↓/${count > 1 ? `1-${count}` : '1'} · ENTER TRAVEL · ESC CLOSE`, {
     fontSize: 10,
     fill: C64.dim,
   });
-  keys.position.set(C64_BEZEL + 14, y + 44);
-  root.addChild(note, safe, keys);
-  return { root, rows, note, pick: onPick };
+  keys.position.set(C64_BEZEL + 14, y + 22);
+  root.addChild(bg, title, menu.root, note, keys);
+  return { root, count, menu, note, pick: onPick };
 }
 
-const SHOP_W = 580;
-const SHOP_H = 304;
-
-function drawShopFrame(bg: Graphics, bezel: number): void {
-  drawC64Frame(bg, 0, 0, SHOP_W, SHOP_H, bezel, 34);
-}
+const SHOP_W = 556;
+const SHOP_H = 244;
 
 /** C64-styled store panel at the right of the playfield. Non-modal: the game keeps running. */
 function buildShop(onBuy: (item: ShopAction) => void): Shop {
@@ -995,79 +1167,31 @@ function buildShop(onBuy: (item: ShopAction) => void): Shop {
   const root = new Container();
   root.position.set(x, y);
   const bg = new Graphics();
-  drawShopFrame(bg, C64.bezel);
-  const title = makeC64Text('CORNER STORE · OPEN 24/7', { fontSize: 13, fill: C64.accent, letterSpacing: 1 });
+  drawC64Frame(bg, 0, 0, SHOP_W, SHOP_H, C64.bezel, 34);
+  const title = makeC64Text('CORNER STORE · SAFE ZONE', { fontSize: 13, fill: C64.accent, letterSpacing: 1 });
   title.position.set(C64_BEZEL + 14, C64_BEZEL + 10);
-  root.addChild(bg, title);
-  const rows = {
-    missile: makePanelRow(root, W, C64_BEZEL + 48, () => onBuy('missile')),
-    flare: makePanelRow(root, W, C64_BEZEL + 76, () => onBuy('flare')),
-    repair: makePanelRow(root, W, C64_BEZEL + 104, () => onBuy('repair')),
-    gas: makePanelRow(root, W, C64_BEZEL + 132, () => onBuy('gas')),
-    fill: makePanelRow(root, W, C64_BEZEL + 160, () => onBuy('fill')),
-  };
-  const fuel = makeC64Text('', { fontSize: 10, fill: C64.accent });
-  fuel.position.set(C64_BEZEL + 14, C64_BEZEL + 202);
-  const safe = makeC64Text("SAFE ZONE: MISSILES CAN'T SEE YOU WHILE PARKED HERE", { fontSize: 10, fill: C64.good });
-  safe.position.set(C64_BEZEL + 14, C64_BEZEL + 226);
-  const leave = makeC64Text('PRESS 1-5 OR CLICK TO BUY · TAKE OFF TO LEAVE', { fontSize: 10, fill: C64.dim });
-  leave.position.set(C64_BEZEL + 14, C64_BEZEL + 250);
-  root.addChild(fuel, safe, leave);
-  return { root, bg, title, rows, fuel, safe, leave, isService: false };
+  const menu = new C64Menu({ fontSize: 11, rowHeight: 28, fixedWidth: W - (C64_BEZEL + 14) * 2 });
+  menu.root.position.set(C64_BEZEL + 14, C64_BEZEL + 48);
+  const actions: ShopAction[] = ['missile', 'flare', 'repair', 'gas', 'fill'];
+  menu.setItems(
+    actions.map((item, i) => ({
+      label: `${i + 1}.`,
+      color: C64.text,
+      enabled: true,
+      onSelect: () => onBuy(item),
+    })),
+  );
+  const keys = makeC64Text('↑↓/1-5 · ENTER BUY · ESC CLOSE', { fontSize: 10, fill: C64.dim });
+  keys.position.set(C64_BEZEL + 14, C64_BEZEL + 198);
+  root.addChild(bg, title, menu.root, keys);
+  return { root, title, menu };
 }
 
-/** Render a horizontal row of centered clickable C64 reverse-video buttons and return total row width. */
-function renderActionRow(container: Container, actions: HudAction[]): number {
-  container.removeChildren().forEach((c) => c.destroy({ children: true }));
-  const gap = 10;
-  const padX = 14;
-  const h = 34;
-  const built = actions.map((a) => {
-    const btn = new Container();
-    const label = makeC64Text(a.label.toUpperCase(), {
-      fontSize: 11,
-      fill: a.primary ? C64.screen : C64.text,
-    });
-    label.anchor.set(0.5);
-    const w = Math.ceil(label.width) + padX * 2;
-    const bg = new Graphics();
-    const draw = (hover: boolean) => {
-      bg.clear();
-      if (a.primary) {
-        bg.rect(0, -h / 2, w, h)
-          .fill(hover ? C64.text : C64.accent)
-          .stroke({ width: 2, color: hover ? C64.text : C64.accent });
-        label.style.fill = C64.screen;
-      } else if (a.danger) {
-        bg.rect(0, -h / 2, w, h)
-          .fill(hover ? C64.dangerLight : C64.danger)
-          .stroke({ width: 2, color: hover ? C64.dangerLight : C64.dangerLight });
-        label.style.fill = hover ? C64.screen : C64.text;
-      } else {
-        bg.rect(0, -h / 2, w, h)
-          .fill(hover ? C64.bezel : C64.screenAlt)
-          .stroke({ width: 2, color: C64.bezel });
-        label.style.fill = hover ? C64.screen : C64.text;
-      }
-    };
-    draw(false);
-    label.position.set(w / 2, 0);
-    btn.addChild(bg, label);
-    btn.eventMode = 'static';
-    btn.cursor = 'pointer';
-    btn.on('pointerover', () => draw(true));
-    btn.on('pointerout', () => draw(false));
-    btn.on('pointertap', () => a.onClick());
-    return { btn, w };
-  });
-  const totalW = built.reduce((sum, b) => sum + b.w, 0) + Math.max(0, built.length - 1) * gap;
-  let x = -totalW / 2;
-  for (const b of built) {
-    b.btn.position.set(x, 0);
-    container.addChild(b.btn);
-    x += b.w + gap;
-  }
-  return totalW;
+/** Release focus from any HTML input/button so keyboard controls snap immediately to the Pixi menu. */
+function blurActiveElement(): void {
+  const el = document.activeElement;
+  if (el instanceof HTMLElement && el !== document.body) el.blur();
+  window.focus();
 }
 
 /** Only touch Text when something changed (re-rendering text is expensive). */
