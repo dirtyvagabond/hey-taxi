@@ -1,7 +1,9 @@
 import { Container, Graphics } from 'pixi.js';
-import { globalWind, laserState, type Level, type SimState } from '@hey-taxi/sim';
+import { globalWind, laserState, syncMovingPlatforms, type Level, type SimState } from '@hey-taxi/sim';
 import { VIEW_H, VIEW_W } from '../camera';
+import { buildMovingAsteroidNode, updateMovingAsteroidNodes } from './asteroid';
 import { makeText } from './text';
+import { COLORS, THEME_PALETTES } from './world';
 
 interface Flake {
   x: number;
@@ -30,19 +32,32 @@ export class EnvironmentView {
   private overlayGfx = new Graphics();
   private weatherGfx = new Graphics();
   private labels = new Container();
+  private platformNodesLayer = new Container();
+  private platformNodes: Container[] = [];
   private flakes: Flake[] = [];
   private level: Level | null = null;
 
   constructor() {
     this.underlay.addChild(this.underlayGfx, this.labels);
-    this.overlay.addChild(this.overlayGfx);
+    this.overlay.addChild(this.platformNodesLayer, this.overlayGfx);
     this.weather.addChild(this.weatherGfx);
   }
 
   setLevel(level: Level): void {
     this.level = level;
     this.labels.removeChildren().forEach((c) => c.destroy());
+    this.platformNodesLayer.removeChildren().forEach((c) => c.destroy({ children: true }));
+    this.platformNodes = [];
     this.flakes = [];
+
+    const pal = THEME_PALETTES[level.theme] ?? COLORS;
+    for (let i = 0; i < level.movingPlatforms.length; i++) {
+      const mp = level.movingPlatforms[i]!;
+      const pad = mp.padIndex >= 0 ? level.pads[mp.padIndex]! : null;
+      const node = buildMovingAsteroidNode(mp, pad, pal, i);
+      this.platformNodesLayer.addChild(node);
+      this.platformNodes.push(node);
+    }
 
     for (const z of level.gravityZones) {
       if (!z.label) continue;
@@ -71,12 +86,19 @@ export class EnvironmentView {
     }
   }
 
-  update(sim: SimState, time: number, dt: number, vpW = VIEW_W): void {
+  update(sim: SimState, time: number, dt: number, vpW = VIEW_W, wrapRef?: { x: number; y: number } | null): void {
     const level = this.level;
     this.underlayGfx.clear();
     this.overlayGfx.clear();
     this.weatherGfx.clear();
     if (!level) return;
+
+    // 0. Moving platforms / drifting asteroids (Drift Belt) — O(N) position updates on cached sprites
+    if (level.movingPlatforms.length) {
+      syncMovingPlatforms(level, sim.tick, sim.platforms);
+      const pal = THEME_PALETTES[level.theme] ?? COLORS;
+      updateMovingAsteroidNodes(this.underlayGfx, this.platformNodes, level, pal, wrapRef);
+    }
 
     // 1. Gravity zones (Polarity Yard)
     for (const z of level.gravityZones) {

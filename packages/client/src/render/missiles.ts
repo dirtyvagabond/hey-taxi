@@ -1,5 +1,5 @@
 import { Graphics } from 'pixi.js';
-import { DT, TAXI, targetable, type Decoy, type Missile, type SimState, type Taxi } from '@hey-taxi/sim';
+import { DT, TAXI, targetable, wrapDelta, type Decoy, type Missile, type SimState, type Taxi } from '@hey-taxi/sim';
 
 /** Draws missiles in flight and a lock-on reticle around the current target (world space). */
 export class MissileLayer {
@@ -15,15 +15,18 @@ export class MissileLayer {
     lockOn: { x: number; y: number } | null,
     alpha: number,
     time: number,
+    wrap?: { refX: number; refY: number; w: number; h: number } | null,
   ): void {
     const g = this.gfx;
     g.clear();
+    const wx = (v: number) => (wrap ? wrap.refX + wrapDelta(wrap.refX, v, wrap.w) : v);
+    const wy = (v: number) => (wrap ? wrap.refY + wrapDelta(wrap.refY, v, wrap.h) : v);
 
     // Burning flares: a flickering glow, a hot yellow body and a white-hot core.
     for (const d of decoys) {
       const back = (1 - alpha) * DT;
-      const x = d.x - d.vx * back;
-      const y = d.y - d.vy * back;
+      const x = wx(d.x - d.vx * back);
+      const y = wy(d.y - d.vy * back);
       const flicker = 0.8 + 0.2 * Math.sin(time * 40 + d.id * 1.7);
       g.circle(x, y, 14 * flicker).fill({ color: 0xffd166, alpha: 0.18 });
       g.circle(x, y, 8 * flicker).fill({ color: 0xffe9a8, alpha: 0.45 });
@@ -54,8 +57,8 @@ export class MissileLayer {
 
     for (const m of missiles) {
       const back = (1 - alpha) * DT;
-      const x = m.x - m.vx * back;
-      const y = m.y - m.vy * back;
+      const x = wx(m.x - m.vx * back);
+      const y = wy(m.y - m.vy * back);
       const a = Math.atan2(m.vy, m.vx);
       const c = Math.cos(a);
       const s = Math.sin(a);
@@ -80,7 +83,9 @@ export function lockTarget(sim: SimState, shooter: Taxi): Taxi | undefined {
   let bestD = Infinity;
   for (const t of sim.taxis) {
     if (t === shooter || !targetable(sim, t)) continue;
-    const d = Math.hypot(t.x - shooter.x, t.y - shooter.y);
+    const dx = sim.level.wrap ? wrapDelta(shooter.x, t.x, sim.level.width) : t.x - shooter.x;
+    const dy = sim.level.wrap ? wrapDelta(shooter.y, t.y, sim.level.height) : t.y - shooter.y;
+    const d = Math.hypot(dx, dy);
     if (d < bestD) {
       best = t;
       bestD = d;

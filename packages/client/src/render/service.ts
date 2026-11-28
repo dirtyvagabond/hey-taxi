@@ -1,5 +1,5 @@
 import { CanvasSource, Container, Graphics, Sprite, Texture, type Text } from 'pixi.js';
-import { Input, TAXI, type ServiceCraft } from '@hey-taxi/sim';
+import { Input, TAXI, wrapCoord, wrapDelta, type ServiceCraft } from '@hey-taxi/sim';
 import { makeText } from './text';
 
 const { halfW: HW, halfH: HH, gearLength: GL } = TAXI;
@@ -236,6 +236,7 @@ export class ServiceLayer {
     prev: ReadonlyMap<number, { x: number; y: number }>,
     alpha: number,
     time: number,
+    wrap?: { refX: number; refY: number; w: number; h: number } | null,
   ): void {
     const seen = new Set<number>();
     for (const c of crafts) {
@@ -247,8 +248,17 @@ export class ServiceLayer {
         this.root.addChild(view.root);
       }
       const p = prev.get(c.id) ?? c;
-      const x = p.x + (c.x - p.x) * alpha;
-      const y = p.y + (c.y - p.y) * alpha;
+      let x: number;
+      let y: number;
+      if (wrap) {
+        const ix = wrapCoord(p.x + wrapDelta(p.x, c.x, wrap.w) * alpha, wrap.w);
+        const iy = wrapCoord(p.y + wrapDelta(p.y, c.y, wrap.h) * alpha, wrap.h);
+        x = wrap.refX + wrapDelta(wrap.refX, ix, wrap.w);
+        y = wrap.refY + wrapDelta(wrap.refY, iy, wrap.h);
+      } else {
+        x = p.x + (c.x - p.x) * alpha;
+        y = p.y + (c.y - p.y) * alpha;
+      }
       view.update(c, x, y, time);
     }
     for (const [id, view] of this.views) {

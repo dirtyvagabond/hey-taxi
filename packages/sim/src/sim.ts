@@ -2,7 +2,19 @@ import { post, toCents, type LedgerCategory } from './accounts';
 import { DEFAULT_CONFIG, type SimConfig } from './config';
 import { DT, EPS, Input, MAX_SUBSTEP, TAXI, TICK_RATE, type TaxiSkin } from './constants';
 import { envForceAt, stepEnvironment, type Meteor } from './env';
-import { boxHitsSolid, isSolid, padIndexAt, tileSpan, type Level } from './level';
+import {
+  boxHitsSolid,
+  isSolid,
+  padIndexAt,
+  platformPose,
+  platformSolidBoxes,
+  syncMovingPlatforms,
+  tileSpan,
+  wrapCoord,
+  wrapDelta,
+  type Level,
+  type PlatformPose,
+} from './level';
 import { npcInput, stepNpcMemory, type AiState } from './ai';
 import { buy, deployFlares, fillUp, fireMissile, stepMissiles, type Decoy, type Missile } from './missiles';
 import { ejectPassenger } from './passenger-flight';
@@ -99,6 +111,8 @@ export interface Taxi {
   hp: number;
   /** Ticks left during which collisions do no further damage. */
   damageGraceTicks: number;
+  /** Ticks spent falling dry in a wrap-around locale (prevents endless freefall). */
+  dryFallTicks?: number;
 }
 
 /**
@@ -203,6 +217,8 @@ export interface SimState {
   meteors: Meteor[];
   /** Ticks until next meteor spawn. */
   meteorSpawnTicks: number;
+  /** Live poses of free-drifting / bouncing moving platforms (synced to client & saves). */
+  platforms?: PlatformPose[];
   /** Active flying convenience service crafts (non-combat, indestructible). */
   serviceCrafts: ServiceCraft[];
   nextServiceCraftId: number;
@@ -363,6 +379,7 @@ function newTaxi(id: string, npc: boolean): Taxi {
 }
 
 export function createSim(level: Level, opts: CreateSimOptions = {}): SimState {
+  syncMovingPlatforms(level, 0);
   const config: SimConfig = { ...DEFAULT_CONFIG, ...opts.config };
   const state: SimState = {
     tick: 0,
@@ -375,6 +392,9 @@ export function createSim(level: Level, opts: CreateSimOptions = {}): SimState {
     decoys: [],
     meteors: [],
     meteorSpawnTicks: level.meteors ? Math.round(level.meteors.interval * TICK_RATE) : 0,
+    ...(level.movingPlatforms.some((p) => p.freeDrift)
+      ? { platforms: level.movingPlatforms.map((p) => ({ ...platformPose(p, 0) })) }
+      : {}),
     serviceCrafts: [],
     nextServiceCraftId: 1,
     nextMissileId: 1,
@@ -489,6 +509,7 @@ export function resetTaxi(state: SimState, taxi: Taxi): void {
 export function step(state: SimState, inputs: Readonly<Record<string, number>>, allowNewResident = true): SimEvent[] {
   const events: SimEvent[] = state.pending.splice(0);
   if (state.complete) return events;
+  stepMovingPlatforms(state, events);
   for (const taxi of state.taxis) {
     const input = taxi.npc ? (isActive(taxi) ? npcInput(state, taxi) : 0) : (inputs[taxi.id] ?? 0);
     stepTaxi(state, taxi, input, events);
@@ -507,6 +528,179 @@ export function step(state: SimState, inputs: Readonly<Record<string, number>>, 
   checkExit(state, events);
   state.tick++;
   return events;
+}
+
+/**
+ * Advance moving platforms one tick:
+ *  - Free-drifting asteroids move at constant velocity, wrap toroidally like classic Asteroids,
+ *    and bounce elastically off each other with mass-weighted 2D impulse physics.
+ *  - Oscillating platforms evaluate their deterministic sinusoidal pose at `s.tick + 1`.
+ * Carries landed taxis & waiting/walking/leaving passengers, and pushes flying taxis out of
+ * any rock sub-box that swept into them.
+ */
+function stepMovingPlatforms(s: SimState, ev: SimEvent[]): void {
+  const { level } = s;
+  const mps = level.movingPlatforms;
+  if (!mps.length) return;
+  const nextTick = s.tick + 1;
+
+  // 1. Capture previous poses and advance each platform.
+  const prevX = new Float64Array(mps.length);
+  const prevY = new Float64Array(mps.length);
+  const hasFree = Boolean(s.platforms && s.platforms.length === mps.length);
+  const nextPoses: PlatformPose[] = hasFree ? s.platforms! : new Array<PlatformPose>(mps.length);
+
+  for (let i = 0; i < mps.length; i++) {
+    const p = mps[i]!;
+    if (p.freeDrift && hasFree) {
+      const pose = nextPoses[i]!;
+      prevX[i] = pose.x;
+      prevY[i] = pose.y;
+      pose.x += pose.vx * DT;
+      pose.y += pose.vy * DT;
+      if (level.wrap) {
+        pose.x = wrapCoord(pose.x, level.width);
+        pose.y = wrapCoord(pose.y, level.height);
+      }
+    } else {
+      const prev = platformPose(p, s.tick);
+      prevX[i] = prev.x;
+      prevY[i] = prev.y;
+      nextPoses[i] = platformPose(p, nextTick);
+    }
+  }
+
+  // 2. Elastic 2D asteroid-on-asteroid collisions (with clearance padding for parked cabs/passengers).
+  if (hasFree) {
+    const padX = 24;
+    const padY = 44;
+    const minSpd = 14;
+    const maxSpd = 42;
+    for (let i = 0; i < mps.length; i++) {
+      const a = mps[i]!;
+      if (!a.freeDrift) continue;
+      const pa = nextPoses[i]!;
+      for (let j = i + 1; j < mps.length; j++) {
+        const b = mps[j]!;
+        if (!b.freeDrift) continue;
+        const pb = nextPoses[j]!;
+        const acx = pa.x + a.w * 0.5;
+        const acy = pa.y + a.h * 0.5;
+        const bcx = pb.x + b.w * 0.5;
+        const bcy = pb.y + b.h * 0.5;
+        const dx = level.wrap ? wrapDelta(acx, bcx, level.width) : bcx - acx;
+        const dy = level.wrap ? wrapDelta(acy, bcy, level.height) : bcy - acy;
+        const ox = (a.w + b.w) * 0.5 + padX - Math.abs(dx);
+        const oy = (a.h + b.h) * 0.5 + padY - Math.abs(dy);
+        if (ox <= 0 || oy <= 0) continue;
+
+        const invMa = 1 / a.mass;
+        const invMb = 1 / b.mass;
+        const invSum = invMa + invMb;
+        let nx = 0;
+        let ny = 0;
+        let sep = 0;
+        if (ox < oy) {
+          nx = dx >= 0 ? 1 : -1;
+          sep = ox + 0.5;
+        } else {
+          ny = dy >= 0 ? 1 : -1;
+          sep = oy + 0.5;
+        }
+        pa.x -= nx * sep * (invMa / invSum);
+        pa.y -= ny * sep * (invMa / invSum);
+        pb.x += nx * sep * (invMb / invSum);
+        pb.y += ny * sep * (invMb / invSum);
+        if (level.wrap) {
+          pa.x = wrapCoord(pa.x, level.width);
+          pa.y = wrapCoord(pa.y, level.height);
+          pb.x = wrapCoord(pb.x, level.width);
+          pb.y = wrapCoord(pb.y, level.height);
+        }
+        const vn = (pb.vx - pa.vx) * nx + (pb.vy - pa.vy) * ny;
+        if (vn < 0) {
+          const impulse = (-2 * vn) / invSum;
+          pa.vx -= impulse * invMa * nx;
+          pa.vy -= impulse * invMa * ny;
+          pb.vx += impulse * invMb * nx;
+          pb.vy += impulse * invMb * ny;
+          for (const pose of [pa, pb]) {
+            const sp = Math.hypot(pose.vx, pose.vy);
+            if (sp > maxSpd) {
+              pose.vx *= maxSpd / sp;
+              pose.vy *= maxSpd / sp;
+            } else if (sp > 0.1 && sp < minSpd) {
+              pose.vx *= minSpd / sp;
+              pose.vy *= minSpd / sp;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // 3. Sync level poses & pads, and carry landed taxis and waiting/walking/leaving passengers.
+  syncMovingPlatforms(level, nextTick, nextPoses);
+  for (let i = 0; i < mps.length; i++) {
+    const p = mps[i]!;
+    if (p.padIndex < 0) continue;
+    const next = level.platformPoses[i]!;
+    const dx = level.wrap ? wrapDelta(prevX[i]!, next.x, level.width) : next.x - prevX[i]!;
+    const pad = level.pads[p.padIndex]!;
+    for (const t of s.taxis) {
+      if (t.status === 'landed' && t.padIndex === p.padIndex) {
+        t.x = level.wrap ? wrapCoord(t.x + dx, level.width) : t.x + dx;
+        t.y = pad.y - TAXI.gearLength * t.gear - TAXI.halfH;
+        if (level.wrap) t.y = wrapCoord(t.y, level.height);
+      }
+    }
+    for (const pax of s.passengers) {
+      if (pax.padIndex === p.padIndex && (pax.state === 'waiting' || pax.state === 'walking' || pax.state === 'leaving')) {
+        pax.x = level.wrap ? wrapCoord(pax.x + dx, level.width) : pax.x + dx;
+        pax.y = pad.y;
+      }
+    }
+  }
+
+  // 4. Push flying taxis out if any moving platform sub-box swept into them.
+  for (const t of s.taxis) {
+    if (t.status !== 'flying') continue;
+    const bot = feetBottom(t);
+    for (let i = 0; i < mps.length; i++) {
+      const p = mps[i]!;
+      const pose = level.platformPoses[i]!;
+      for (const [sx0, sy0, sx1, sy1] of platformSolidBoxes(p, pose)) {
+        const scx = (sx0 + sx1) * 0.5;
+        const scy = (sy0 + sy1) * 0.5;
+        const rx = level.wrap ? scx + wrapDelta(scx, t.x, level.width) : t.x;
+        const ry = level.wrap ? scy + wrapDelta(scy, t.y, level.height) : t.y;
+        const rbot = ry + (bot - t.y);
+        const ox = Math.min(rx + TAXI.halfW, sx1) - Math.max(rx - TAXI.halfW, sx0);
+        const oy = Math.min(rbot, sy1) - Math.max(ry - TAXI.halfH, sy0);
+        if (ox <= 0 || oy <= 0) continue;
+        // Gear-down taxi skids barely entering top of a rising surface: lift cleanly so touchdown() lands it.
+        if (t.gear >= 1 && ry + TAXI.halfH < sy0 && rbot - sy0 < 14 && rx > sx0 - TAXI.halfW && rx < sx1 + TAXI.halfW) {
+          t.y = sy0 - TAXI.halfH - TAXI.gearLength * t.gear - 0.5;
+          if (level.wrap) t.y = wrapCoord(t.y, level.height);
+          continue;
+        }
+        const relSpeed = Math.hypot(t.vx - pose.vx, t.vy - pose.vy);
+        if (ox < oy) {
+          const dir = rx < scx ? -1 : 1;
+          t.x = level.wrap ? wrapCoord(t.x + dir * (ox + 1), level.width) : t.x + dir * (ox + 1);
+          if (!collide(s, t, 'body', relSpeed, ev)) {
+            t.vx = pose.vx + dir * Math.max(30, Math.abs(t.vx - pose.vx) * s.config.collisionBounce);
+          }
+        } else {
+          const dir = ry < scy ? -1 : 1;
+          t.y = level.wrap ? wrapCoord(t.y + dir * (oy + 1), level.height) : t.y + dir * (oy + 1);
+          if (!collide(s, t, 'body', relSpeed, ev)) {
+            t.vy = pose.vy + dir * Math.max(30, Math.abs(t.vy - pose.vy) * s.config.collisionBounce);
+          }
+        }
+      }
+    }
+  }
 }
 
 /** Open the gate once the quota is met; finish the level when a taxi flies into it. */
@@ -554,8 +748,12 @@ function resolveTaxiBumps(s: SimState, ev: SimEvent[]): void {
       const bFixed = b.status === 'landed';
       if (aFixed && bFixed) continue;
       const bottom = (t: Taxi) => t.y + TAXI.halfH + TAXI.gearLength * t.gear;
-      const ox = Math.min(a.x, b.x) + TAXI.halfW - (Math.max(a.x, b.x) - TAXI.halfW);
-      const oy = Math.min(bottom(a), bottom(b)) - Math.max(a.y - TAXI.halfH, b.y - TAXI.halfH);
+      const dxB = s.level.wrap ? wrapDelta(a.x, b.x, s.level.width) : b.x - a.x;
+      const dyB = s.level.wrap ? wrapDelta(a.y, b.y, s.level.height) : b.y - a.y;
+      const ox = 2 * TAXI.halfW - Math.abs(dxB);
+      const oy =
+        Math.min(bottom(a), a.y + dyB + TAXI.halfH + TAXI.gearLength * b.gear) -
+        Math.max(a.y - TAXI.halfH, a.y + dyB - TAXI.halfH);
       if (ox <= 0 || oy <= 0) continue;
 
       const speed = Math.hypot(a.vx - b.vx, a.vy - b.vy);
@@ -563,14 +761,14 @@ function resolveTaxiBumps(s: SimState, ev: SimEvent[]): void {
       const shareA = aFixed ? 0 : bFixed ? 1 : 0.5;
       const shareB = 1 - shareA;
       if (ox < oy) {
-        const dir = a.x < b.x ? -1 : 1; // direction a gets pushed
+        const dir = dxB > 0 ? -1 : 1; // direction a gets pushed
         shove(s, a, dir * (ox + 0.5) * shareA, 0);
         shove(s, b, -dir * (ox + 0.5) * shareB, 0);
         const [avx, bvx] = [a.vx, b.vx];
         if (!aFixed) a.vx = (bFixed ? -avx : bvx) * 0.5 + dir * 30;
         if (!bFixed) b.vx = (aFixed ? -bvx : avx) * 0.5 - dir * 30;
       } else {
-        const dir = a.y < b.y ? -1 : 1;
+        const dir = dyB > 0 ? -1 : 1;
         shove(s, a, 0, dir * (oy + 0.5) * shareA);
         shove(s, b, 0, -dir * (oy + 0.5) * shareB);
         const [avy, bvy] = [a.vy, b.vy];
@@ -673,6 +871,14 @@ function stepTaxi(s: SimState, t: Taxi, input: number, ev: SimEvent[]): void {
 
   if (t.status === 'landed') {
     if (input & Input.UP && t.fuel > 0) {
+      if (t.padIndex >= 0) {
+        const platIdx = s.level.pads[t.padIndex]?.platformIndex ?? -1;
+        if (platIdx >= 0) {
+          const pose = s.level.platformPoses[platIdx]!;
+          t.vx = pose.vx * 0.7;
+          t.vy = Math.min(0, pose.vy);
+        }
+      }
       t.status = 'flying';
       t.padIndex = -1;
       ev.push({ type: 'tookOff', taxiId: t.id });
@@ -732,6 +938,15 @@ function stepTaxi(s: SimState, t: Taxi, input: number, ev: SimEvent[]): void {
   }
 
   move(s, t, ev);
+  // In a wrap-around locale, prevent a dry taxi from falling endlessly through empty space.
+  if (s.level.wrap && t.status === 'flying') {
+    if (t.fuel <= 0) {
+      t.dryFallTicks = (t.dryFallTicks ?? 0) + 1;
+      if (t.dryFallTicks >= 7 * TICK_RATE) crash(s, t, 'outOfFuel', ev);
+    } else if (t.dryFallTicks) {
+      t.dryFallTicks = 0;
+    }
+  }
 }
 
 /** Move by one tick of velocity in small sub-steps, x then y, resolving contacts. */
@@ -786,6 +1001,10 @@ function move(s: SimState, t: Taxi, ev: SimEvent[]): void {
       touchdown(s, t, prevFeetBottom, syLeft, ev);
       return;
     }
+    if (s.level.wrap) {
+      t.x = wrapCoord(t.x, s.level.width);
+      t.y = wrapCoord(t.y, s.level.height);
+    }
   }
 }
 
@@ -817,20 +1036,42 @@ export function collide(
 function touchdown(s: SimState, t: Taxi, prevFeetBottom: number, sy: number, ev: SimEvent[]): void {
   const c = s.config;
   const level = s.level;
+  let surface = Math.floor((feetBottom(t) - EPS) / level.tileSize) * level.tileSize;
+  let platVx = 0;
+  let platVy = 0;
+  let hitPlat = false;
+  for (let i = 0; i < level.movingPlatforms.length && !hitPlat; i++) {
+    const p = level.movingPlatforms[i]!;
+    const pose = level.platformPoses[i]!;
+    for (const [sx0, sy0, sx1, sy1] of platformSolidBoxes(p, pose)) {
+      const scx = (sx0 + sx1) * 0.5;
+      const scy = (sy0 + sy1) * 0.5;
+      const rx = level.wrap ? scx + wrapDelta(scx, t.x, level.width) : t.x;
+      const ry = level.wrap ? scy + wrapDelta(scy, t.y, level.height) : t.y;
+      const rbot = ry + TAXI.halfH + TAXI.gearLength * t.gear;
+      if (rx + TAXI.feetHalfW > sx0 && rx - TAXI.feetHalfW < sx1 && rbot > sy0 && ry + TAXI.halfH < sy1) {
+        surface = level.wrap ? wrapCoord(sy0, level.height) : sy0;
+        platVx = pose.vx;
+        platVy = pose.vy;
+        hitPlat = true;
+        break;
+      }
+    }
+  }
+  const relVx = t.vx - platVx;
+  const relVy = t.vy - platVy;
   const bounce = (reason: CrashReason) => {
     t.y -= sy;
-    if (collide(s, t, reason, Math.abs(t.vy), ev)) return;
-    t.vy = -Math.abs(t.vy) * c.collisionBounce;
+    if (collide(s, t, reason, Math.abs(relVy), ev)) return;
+    t.vy = platVy - Math.abs(relVy) * c.collisionBounce;
   };
   // With a dry tank every bounce and hard touchdown below is an impact that destroys it
   // (see collide); only a clean landing at a store it can buy gas from is survivable.
   if (t.gear < 1) return bounce('gearUp');
-  if (t.vy <= 0) return bounce('body');
+  if (relVy <= 0) return bounce('body');
 
-  const ts = level.tileSize;
-  const surface = Math.floor((feetBottom(t) - EPS) / ts) * ts;
   // Skids clipped something from the side rather than settling onto a top surface.
-  if (prevFeetBottom > surface + EPS) return bounce('body');
+  if (prevFeetBottom > surface + EPS + Math.max(0, -platVy * DT) + 1.5) return bounce('body');
   if (!feetSupported(level, t.x, surface, c.landMinSupport)) {
     // Mostly off the edge: bounce, and tip off toward the unsupported side.
     const leftSupport = feetSupport(level, t.x - TAXI.feetHalfW / 2, surface);
@@ -839,20 +1080,19 @@ function touchdown(s: SimState, t: Taxi, prevFeetBottom: number, sy: number, ev:
     if (t.status !== 'destroyed') t.vx += leftSupport > rightSupport ? 40 : -40;
     return;
   }
-  // Too fast: it still lands, but the hard touchdown costs a hull point (or the last one).
-  if (t.vy > landingMaxVy(c, t.vx) || Math.abs(t.vx) > c.landMaxVx) {
-    if (collide(s, t, 'hardLanding', Math.max(t.vy, Math.abs(t.vx)), ev)) return;
+  // Too fast (relative to the landing surface): it still lands, but costs a hull point.
+  if (relVy > landingMaxVy(c, relVx) || Math.abs(relVx) > c.landMaxVx) {
+    if (collide(s, t, 'hardLanding', Math.max(relVy, Math.abs(relVx)), ev)) return;
   }
 
-  const { vx, vy } = t;
   t.y = surface - TAXI.gearLength - TAXI.halfH;
   t.vx = 0;
   t.vy = 0;
   t.status = 'landed';
   t.padIndex = padUnderFeet(level, t.x, surface);
-  let rating: LandingRating = vy <= c.landSmoothVy ? 'smooth' : vy <= c.landOkVy ? 'ok' : 'rough';
-  if (Math.abs(vx) > c.landRoughVx) rating = 'rough';
-  ev.push({ type: 'landed', taxiId: t.id, padIndex: t.padIndex, vx, vy, rating });
+  let rating: LandingRating = relVy <= c.landSmoothVy ? 'smooth' : relVy <= c.landOkVy ? 'ok' : 'rough';
+  if (Math.abs(relVx) > c.landRoughVx) rating = 'rough';
+  ev.push({ type: 'landed', taxiId: t.id, padIndex: t.padIndex, vx: relVx, vy: relVy, rating });
 }
 
 /** Side thrusters work only with the landing gear fully retracted (and not moving). */
@@ -890,14 +1130,21 @@ export function crash(s: SimState, t: Taxi, reason: CrashReason, ev: SimEvent[],
  * (fuel, hull, ammo, money, cooldowns) is unchanged.
  */
 export function admitTaxi(s: SimState, t: Taxi, spot?: { padIndex: number; x: number }): void {
-  respawn(s, t);
   if (spot) {
     // Landed on the given pad (a teleport), at rest, gear down.
     const pad = s.level.pads[spot.padIndex]!;
-    t.x = spot.x;
-    t.y = pad.y - TAXI.gearLength - TAXI.halfH;
+    t.x = s.level.wrap ? wrapCoord(spot.x, s.level.width) : spot.x;
+    t.y = s.level.wrap ? wrapCoord(pad.y - TAXI.gearLength - TAXI.halfH, s.level.height) : pad.y - TAXI.gearLength - TAXI.halfH;
+    t.vx = 0;
+    t.vy = 0;
     t.status = 'landed';
+    t.ai = null;
+    t.gearDown = true;
+    t.gear = 1;
     t.padIndex = pad.index;
+    t.respawnTicks = 0;
+  } else {
+    respawn(s, t);
   }
   t.prevInput = 0;
   t.thrust = 0;
@@ -947,26 +1194,69 @@ export function arrivalPoint(level: Level, others: readonly Taxi[] = []): { x: n
   return { ...spot, padIndex: -1 };
 }
 
-/** Where the taxi starts: resting on the first solid surface below the S tile. Throws if unusable. */
+/** Where the taxi starts: resting on the first solid surface (or moving platform) below S. */
 export function spawnPoint(level: Level): { x: number; y: number; padIndex: number } {
-  let row = level.spawnRow;
-  while (row < level.rows && !isSolid(level, level.spawnCol, row)) row++;
-  if (row >= level.rows) throw new Error(`Level "${level.name}": no ground below spawn`);
-  const surface = row * level.tileSize;
   const x = (level.spawnCol + 0.5) * level.tileSize;
+  const sy = level.spawnRow * level.tileSize;
+  // Check moving platforms directly below S first if no static solid tile is at or just below S.
+  let bestMovingY = Infinity;
+  for (let i = 0; i < level.movingPlatforms.length; i++) {
+    const p = level.movingPlatforms[i]!;
+    const pose = level.platformPoses[i]!;
+    for (const [sx0, sy0, sx1] of platformSolidBoxes(p, pose)) {
+      if (x >= sx0 && x <= sx1 && sy0 >= sy && sy0 < bestMovingY) {
+        bestMovingY = sy0;
+      }
+    }
+  }
+  let row = level.spawnRow;
+  while (row < level.rows && !level.solid[row * level.cols + level.spawnCol]) row++;
+  const staticY = row < level.rows ? row * level.tileSize : Infinity;
+  const surface = Math.min(staticY, bestMovingY);
+  if (!Number.isFinite(surface)) {
+    // In moving-platform-only locales (e.g. Drift Belt), the asteroid under S may have drifted away
+    // after tick 0 — spawn on the live surface of the first open-air moving pad instead.
+    const fallbackPad =
+      level.pads.find((p) => p.platformIndex >= 0 && p.kind === 'pad' && !level.movingPlatforms[p.platformIndex]?.cave) ??
+      level.pads.find((p) => p.platformIndex >= 0);
+    if (fallbackPad) {
+      const fx = level.wrap ? wrapCoord(fallbackPad.x + fallbackPad.w * 0.5, level.width) : fallbackPad.x + fallbackPad.w * 0.5;
+      const fy = fallbackPad.y - TAXI.gearLength - TAXI.halfH;
+      return { x: fx, y: fy, padIndex: fallbackPad.index };
+    }
+    throw new Error(`Level "${level.name}": no ground below spawn`);
+  }
   const y = surface - TAXI.gearLength - TAXI.halfH;
   if (!feetSupported(level, x, surface)) {
     throw new Error(`Level "${level.name}": ground below spawn is too narrow for the taxi's skids`);
   }
-  if (boxHitsSolid(level, x - TAXI.halfW, y - TAXI.halfH, x + TAXI.halfW, surface)) {
+  if (boxHitsSolid(level, x - TAXI.halfW, y - TAXI.halfH, x + TAXI.halfW, surface - 0.5)) {
     throw new Error(`Level "${level.name}": not enough room for the taxi at spawn`);
   }
   return { x, y, padIndex: padUnderFeet(level, x, surface) };
 }
 
-/** Fraction (0–1) of the skid width resting on solid tiles whose top is at `surface`. */
+/** Fraction (0–1) of the skid width resting on solid tiles or moving platforms whose top is at `surface`. */
 export function feetSupport(level: Level, x: number, surface: number): number {
-  return skidCoverage(level, x, surface, (c, row) => isSolid(level, c, row));
+  const x0 = x - TAXI.feetHalfW;
+  const x1 = x + TAXI.feetHalfW;
+  let best = 0;
+  for (let i = 0; i < level.movingPlatforms.length; i++) {
+    const p = level.movingPlatforms[i]!;
+    const pose = level.platformPoses[i]!;
+    for (const [sx0, sy0, sx1] of platformSolidBoxes(p, pose)) {
+      const dy = level.wrap ? Math.abs(wrapDelta(sy0, surface, level.height)) : Math.abs(sy0 - surface);
+      if (dy < 1.5) {
+        const rx = level.wrap ? (sx0 + sx1) * 0.5 + wrapDelta((sx0 + sx1) * 0.5, x, level.width) : x;
+        const ov = Math.max(0, Math.min(rx + TAXI.feetHalfW, sx1) - Math.max(rx - TAXI.feetHalfW, sx0));
+        best = Math.max(best, ov / (x1 - x0));
+      }
+    }
+  }
+  if (Math.abs(surface - Math.round(surface / level.tileSize) * level.tileSize) < 1) {
+    best = Math.max(best, skidCoverage(level, x, surface, (c, row) => isSolid(level, c, row)));
+  }
+  return best;
 }
 
 /** Does at least `minSupport` of the skid width rest on solid ground at `surface`? */
@@ -978,7 +1268,20 @@ export function feetSupported(level: Level, x: number, surface: number, minSuppo
 function padUnderFeet(level: Level, x: number, surface: number): number {
   let best = -1;
   let bestCover = 0;
+  const x0 = x - TAXI.feetHalfW;
+  const x1 = x + TAXI.feetHalfW;
   for (const pad of level.pads) {
+    if (pad.platformIndex >= 0) {
+      const dy = level.wrap ? Math.abs(wrapDelta(pad.y, surface, level.height)) : Math.abs(pad.y - surface);
+      if (dy >= 1.5) continue;
+      const rx = level.wrap ? pad.x + pad.w * 0.5 + wrapDelta(pad.x + pad.w * 0.5, x, level.width) : x;
+      const cover = Math.max(0, Math.min(rx + TAXI.feetHalfW, pad.x + pad.w) - Math.max(rx - TAXI.feetHalfW, pad.x)) / (x1 - x0);
+      if (cover > bestCover) {
+        best = pad.index;
+        bestCover = cover;
+      }
+      continue;
+    }
     if (pad.y !== surface) continue;
     const cover = skidCoverage(level, x, surface, (c, row) => padIndexAt(level, c, row) === pad.index);
     if (cover > bestCover) {

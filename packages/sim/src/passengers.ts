@@ -476,8 +476,12 @@ function taxiById(s: SimState, id: string | null): Taxi | undefined {
   return id === null ? undefined : s.taxis.find((t) => t.id === id);
 }
 
-function padDistance(a: Pick<Pad, 'x' | 'w' | 'y'>, b: Pad): number {
-  return Math.hypot(a.x + a.w / 2 - (b.x + b.w / 2), a.y - b.y);
+function padDistance(a: Pick<Pad, 'x' | 'w' | 'y'> & { baseX?: number; baseY?: number }, b: Pad): number {
+  const ax = (a.baseX ?? a.x) + a.w / 2;
+  const ay = a.baseY ?? a.y;
+  const bx = (b.baseX ?? b.x) + b.w / 2;
+  const by = b.baseY ?? b.y;
+  return Math.hypot(ax - bx, ay - by);
 }
 
 function round2(v: number): number {

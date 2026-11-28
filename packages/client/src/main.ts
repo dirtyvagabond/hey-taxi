@@ -20,6 +20,8 @@ import {
   TAXI,
   WORLD,
   WORLD_LEVELS,
+  wrapCoord,
+  wrapDelta,
   type Level,
   type Passenger,
   type SimState,
@@ -1054,51 +1056,24 @@ class Game {
     }
     const youPingAlpha = this.playerPingTime > 0 ? Math.min(1, this.playerPingTime / 0.6) : 0;
     const localTaxi = this.taxiById(this.localId);
-    const localPos = localTaxi
-      ? (() => {
-          const p = this.prev.get(localTaxi.id) ?? localTaxi;
-          return { x: p.x + (localTaxi.x - p.x) * alpha, y: p.y + (localTaxi.y - p.y) * alpha };
-        })()
-      : null;
-    for (const taxi of this.sim.taxis) {
-      const view = this.viewOf(taxi);
+    const level = this.sim.level;
+    const interp = (taxi: Taxi) => {
       const prev = this.prev.get(taxi.id) ?? taxi;
-      const pos = { x: prev.x + (taxi.x - prev.x) * alpha, y: prev.y + (taxi.y - prev.y) * alpha };
-      this.rendered.set(taxi.id, pos);
-      const distFromPlayer =
-        !watching && localPos && taxi.id !== this.localId ? Math.hypot(pos.x - localPos.x, pos.y - localPos.y) : 0;
-      view.update(
-        taxi,
-        pos.x,
-        pos.y,
-        this.time,
-        this.config.taxiMaxHp,
-        this.config.fuelMax,
-        this.localId,
-        (id) => this.nameOf(id),
-        showSelfName,
-        distFromPlayer,
-        youPingAlpha,
-      );
-      const rider = riderOf(this.sim, taxi.id);
-      view.setRider(rider ? rider.kind : null);
-    }
+      if (level.wrap) {
+        return {
+          x: wrapCoord(prev.x + wrapDelta(prev.x, taxi.x, level.width) * alpha, level.width),
+          y: wrapCoord(prev.y + wrapDelta(prev.y, taxi.y, level.height) * alpha, level.height),
+        };
+      }
+      return { x: prev.x + (taxi.x - prev.x) * alpha, y: prev.y + (taxi.y - prev.y) * alpha };
+    };
     const t = this.taxiById(this.viewedId) ?? this.sim.taxis[0];
     if (!t && !watching) return;
     const live =
       !this.paused && (this.mode === 'playing' || (this.mode === 'destroyed' && (this.overview.isOpen || spectating || watching)));
-    this.hullWarning(spectating || watching ? undefined : t, live, dt);
-    const canFirstSight = this.canAmbientHail() ? (p: Passenger) => this.isPassengerOnScreen(p) : undefined;
-    this.passengers.update(this.sim.passengers, this.paused ? 0 : dt, canFirstSight);
-    if (watching) {
-      this.sound.setThrust(0, false);
-    } else if (t) {
-      const thrust = live ? t.thrust : 0;
-      const thrusters = [Input.UP, Input.DOWN, Input.LEFT, Input.RIGHT].filter((b) => thrust & b).length;
-      this.sound.setThrust(thrusters, (thrust & Input.UP) !== 0);
-    }
+    this.worldView?.setWatchMode(watching);
 
-    const level = this.sim.level;
+    let wrapRef: { refX: number; refY: number; w: number; h: number } | null = null;
     if (watching) {
       const topPad = 58;
       const pad = 14;
@@ -1119,27 +1094,102 @@ class Game {
       const zk = 1 - Math.exp(-dt * rate);
       this.zoom += (targetZoom - this.zoom) * zk;
       if (Math.abs(targetZoom - this.zoom) < 0.001) this.zoom = targetZoom;
-      const { x, y } = this.drawnAt(t.id);
-      if (live) this.camera.follow(x, y, t.vx, t.vy, level.width, level.height, dt, this.zoom, this.vpW, this.vpH);
-      else this.camera.snap(x, y, level.width, level.height, this.zoom, this.vpW, this.vpH);
+      const { x, y } = interp(t);
+      if (live) this.camera.follow(x, y, t.vx, t.vy, level.width, level.height, dt, this.zoom, this.vpW, this.vpH, level.wrap);
+      else this.camera.snap(x, y, level.width, level.height, this.zoom, this.vpW, this.vpH, level.wrap);
       const shake = this.options.screenShake && !this.paused ? this.camera.shakeOffset(dt) : { x: 0, y: 0 };
       this.world.scale.set(this.zoom);
       this.world.position.set(-this.camera.x * this.zoom + shake.x, -this.camera.y * this.zoom + shake.y);
       if (this.worldView) this.worldView.background.visible = true;
       this.worldView?.updateParallax(this.camera.x, this.camera.y, this.paused ? 0 : dt);
+      if (level.wrap) {
+        wrapRef = {
+          refX: this.camera.x + this.vpW / (2 * this.zoom),
+          refY: this.camera.y + this.vpH / (2 * this.zoom),
+          w: level.width,
+          h: level.height,
+        };
+      }
       this.guides.world.visible = true;
       this.guides.screen.visible = true;
-      this.guides.update(this.guideTarget(t), this.camera.x, this.camera.y, this.time, this.zoom, this.vpW, this.vpH);
+      const rawGuide = this.guideTarget(t);
+      const guide =
+        rawGuide && wrapRef
+          ? {
+              ...rawGuide,
+              x: wrapRef.refX + wrapDelta(wrapRef.refX, rawGuide.x + rawGuide.w * 0.5, wrapRef.w) - rawGuide.w * 0.5,
+              y: wrapRef.refY + wrapDelta(wrapRef.refY, rawGuide.y, wrapRef.h),
+            }
+          : rawGuide;
+      this.guides.update(guide, this.camera.x, this.camera.y, this.time, this.zoom, this.vpW, this.vpH);
     }
-    this.envView.update(this.sim, this.time, this.paused ? 0 : dt, this.vpW);
+
+    const localPos = localTaxi ? interp(localTaxi) : null;
+    for (const taxi of this.sim.taxis) {
+      const view = this.viewOf(taxi);
+      const raw = interp(taxi);
+      const pos = wrapRef
+        ? {
+            x: wrapRef.refX + wrapDelta(wrapRef.refX, raw.x, wrapRef.w),
+            y: wrapRef.refY + wrapDelta(wrapRef.refY, raw.y, wrapRef.h),
+          }
+        : raw;
+      this.rendered.set(taxi.id, pos);
+      const distFromPlayer =
+        !watching && localPos && taxi.id !== this.localId
+          ? Math.hypot(
+              level.wrap ? wrapDelta(localPos.x, raw.x, level.width) : raw.x - localPos.x,
+              level.wrap ? wrapDelta(localPos.y, raw.y, level.height) : raw.y - localPos.y,
+            )
+          : 0;
+      view.update(
+        taxi,
+        pos.x,
+        pos.y,
+        this.time,
+        this.config.taxiMaxHp,
+        this.config.fuelMax,
+        this.localId,
+        (id) => this.nameOf(id),
+        showSelfName,
+        distFromPlayer,
+        youPingAlpha,
+      );
+      const rider = riderOf(this.sim, taxi.id);
+      view.setRider(rider ? rider.kind : null);
+    }
+    this.hullWarning(spectating || watching ? undefined : t, live, dt);
+    const canFirstSight = this.canAmbientHail() ? (p: Passenger) => this.isPassengerOnScreen(p) : undefined;
+    this.passengers.update(this.sim.passengers, this.paused ? 0 : dt, canFirstSight, wrapRef);
+    if (watching) {
+      this.sound.setThrust(0, false);
+    } else if (t) {
+      const thrust = live ? t.thrust : 0;
+      const thrusters = [Input.UP, Input.DOWN, Input.LEFT, Input.RIGHT].filter((b) => thrust & b).length;
+      this.sound.setThrust(thrusters, (thrust & Input.UP) !== 0);
+    }
+    this.envView.update(
+      this.sim,
+      this.time,
+      this.paused ? 0 : dt,
+      this.vpW,
+      wrapRef ? { x: wrapRef.refX, y: wrapRef.refY } : null,
+    );
 
     const armed = !!t && !inSafeZone(this.sim, t) && (t.missiles > 0 || this.config.missilesUnlimited);
     const target =
       !spectating && !watching && t && armed && (t.status === 'flying' || t.status === 'landed')
         ? lockTarget(this.sim, t)
         : undefined;
-    this.serviceLayer.update(this.sim.serviceCrafts ?? [], this.prevService, alpha, this.time);
-    this.missileLayer.update(this.sim.missiles, this.sim.decoys, target ? this.drawnAt(target.id) : null, alpha, this.time);
+    this.serviceLayer.update(this.sim.serviceCrafts ?? [], this.prevService, alpha, this.time, wrapRef);
+    this.missileLayer.update(
+      this.sim.missiles,
+      this.sim.decoys,
+      target ? this.drawnAt(target.id) : null,
+      alpha,
+      this.time,
+      wrapRef,
+    );
     this.particles.draw();
     this.drawPadShields(this.paused ? 0 : dt);
     this.drawTeleportFx(this.paused ? 0 : dt, watching);

@@ -1,6 +1,6 @@
 import { TAXI } from './constants';
 import { levelById } from './content';
-import { boxHitsSolid, isSolid } from './level';
+import { boxHitsSolid, isSolid, platformSolidBoxes, wrapDelta } from './level';
 import type { Passenger, Resident, SimState, Taxi } from './sim';
 
 const FIRST = ['Ada', 'Cleo', 'Robin', 'Jules', 'Sam', 'Pia', 'Alex', 'Sol', 'Morgan', 'Iris', 'Ari', 'Felix', 'Bea', 'Nico', 'Tess', 'June'];
@@ -47,9 +47,26 @@ export function setJourneyTarget(s: SimState, p: Passenger): void {
 /** A passenger can walk only along an uninterrupted floor with headroom. */
 export function walkable(s: SimState, fromX: number, toX: number, surface: number): boolean {
   const level = s.level;
-  if (boxHitsSolid(level, Math.min(fromX, toX) - 5, surface - 22, Math.max(fromX, toX) + 5, surface)) return false;
+  const minX = Math.min(fromX, toX);
+  const maxX = Math.max(fromX, toX);
+  if (boxHitsSolid(level, minX - 5, surface - 22, maxX + 5, surface - 0.5)) return false;
+  // Moving platform top surface (including cave floor): uninterrupted span within [sx0, sx1].
+  for (let i = 0; i < level.movingPlatforms.length; i++) {
+    const p = level.movingPlatforms[i]!;
+    const pose = level.platformPoses[i]!;
+    for (const [sx0, sy0, sx1] of platformSolidBoxes(p, pose)) {
+      const dy = level.wrap ? Math.abs(wrapDelta(sy0, surface, level.height)) : Math.abs(sy0 - surface);
+      if (dy < 1.5) {
+        const cx = (sx0 + sx1) * 0.5;
+        const hw = (sx1 - sx0) * 0.5 - 2;
+        const d0 = level.wrap ? Math.abs(wrapDelta(cx, minX, level.width)) : Math.abs(minX - cx);
+        const d1 = level.wrap ? Math.abs(wrapDelta(cx, maxX, level.width)) : Math.abs(maxX - cx);
+        if (d0 <= hw && d1 <= hw) return true;
+      }
+    }
+  }
   const row = Math.floor(surface / level.tileSize);
-  for (let col = Math.floor(Math.min(fromX, toX) / level.tileSize); col <= Math.floor(Math.max(fromX, toX) / level.tileSize); col++) {
+  for (let col = Math.floor(minX / level.tileSize); col <= Math.floor(maxX / level.tileSize); col++) {
     if (!isSolid(level, col, row)) return false;
   }
   return true;

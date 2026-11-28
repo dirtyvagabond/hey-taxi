@@ -39,7 +39,7 @@ describe('GameSession', () => {
       accountName: TEST_ACCOUNT.name,
       name: 'Santa Monica',
       fareMultiplier: 0.5,
-      localeCount: 9,
+      localeCount: 10,
     });
     s.command('advance');
     expect(s.running).toBe(true);

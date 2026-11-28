@@ -25,6 +25,7 @@ import {
   TAXI,
   levelById,
   parseLevel,
+  syncMovingPlatforms,
   WORLD_LEVELS,
   step,
   type SimConfig,
@@ -404,15 +405,16 @@ export class World {
     if (from === to) return;
     const t = from.sim.taxis.find((x) => x.id === taxiId);
     if (!t) throw new Error(`taxi "${taxiId}" missing from locale "${from.id}"`);
-    from.sim.taxis = from.sim.taxis.filter((x) => x !== t);
     const rider = riderOf(from.sim, taxiId);
+    // Admit into destination first so a failure cannot leave the taxi missing from both locales.
+    admitTaxi(to.sim, t, spot);
+    from.sim.taxis = from.sim.taxis.filter((x) => x !== t);
     if (rider) from.sim.passengers = from.sim.passengers.filter(p => p !== rider);
     releaseBoardingPassengers(from.sim, t);
     // Missiles chasing it lose their target (they'll look for another).
     for (const m of from.sim.missiles) if (m.targetId === taxiId) m.targetId = null;
     // Escaping to another locale clears local fear (vendettaTargetId is kept for cross-locale pursuit).
     t.fleeFromId = null;
-    admitTaxi(to.sim, t, spot);
     if (rider) {
       // Local sprite/AI handles are allocated per locale. The person's ID never changes.
       const intended = this.locale(rider.destination.localeId).sim.level;
@@ -470,7 +472,9 @@ export class World {
       const content = levelById(l.id);
       if (!content) throw new WorldContentError(`its locale "${l.id}" no longer exists`);
       if (content.version !== l.version) throw new WorldContentError(`its locale "${content.data.name}" has changed since it was saved`);
-      const sim: SimState = { ...l.sim, localeId: l.id, level: parseLevel(content.data), config };
+      const level = parseLevel(content.data);
+      syncMovingPlatforms(level, l.sim.tick, l.sim.platforms);
+      const sim: SimState = { ...l.sim, localeId: l.id, level, config };
       for (const t of sim.taxis) {
         const owner = w.taxis[t.id]?.accountId;
         if (owner) t.driverId ??= owner;

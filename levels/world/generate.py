@@ -1,5 +1,5 @@
 """
-Generates the game's nine locales and checks they're fair.
+Generates the game's ten locales and checks they're fair.
 
     python3 levels/world/generate.py levels/world [-v]
 
@@ -17,11 +17,12 @@ from collections import deque
 OUT = sys.argv[1]
 
 class L:
-    def __init__(s, cols, rows):
+    def __init__(s, cols, rows, border=True):
         s.C, s.R = cols, rows
         s.g = [['.'] * cols for _ in range(rows)]
-        s.fill(0, 0, 0, cols - 1); s.fill(rows - 1, rows - 1, 0, cols - 1)
-        s.fill(0, rows - 1, 0, 0); s.fill(0, rows - 1, cols - 1, cols - 1)
+        if border:
+            s.fill(0, 0, 0, cols - 1); s.fill(rows - 1, rows - 1, 0, cols - 1)
+            s.fill(0, rows - 1, 0, 0); s.fill(0, rows - 1, cols - 1, cols - 1)
     def fill(s, r0, r1, c0, c1, ch='#'):
         for r in range(r0, r1 + 1):
             for c in range(c0, c1 + 1): s.g[r][c] = ch
@@ -32,18 +33,21 @@ class L:
         if base: s.fill(row + 1, min(row + base, s.R - 1), c0, c1)
     def rows(s): return [''.join(r) for r in s.g]
 
-def check(lv, min_pads=5):
+def check(lv, min_pads=5, moving_platforms=None, wrap=False):
     """Problems found (empty = OK)."""
     g = lv.g; C, R = lv.C, lv.R
-    free = lambda c, r: (0 <= c < C - 1 and 0 <= r < R - 1 and
-                         all(g[r + dr][c + dc] in '.S' for dr in (0, 1) for dc in (0, 1)))
+    if wrap:
+        free = lambda c, r: all(g[(r + dr) % R][(c + dc) % C] in '.S' for dr in (0, 1) for dc in (0, 1))
+    else:
+        free = lambda c, r: (0 <= c < C - 1 and 0 <= r < R - 1 and
+                             all(g[r + dr][c + dc] in '.S' for dr in (0, 1) for dc in (0, 1)))
     sr, sc = next((r, c) for r in range(R) for c in range(C) if g[r][c] == 'S')
-    start = next((c, r) for r in (sr - 1, sr) for c in (sc - 1, sc) if free(c, r))
+    start = next(((c % C, r % R) if wrap else (c, r)) for r in (sr - 1, sr) for c in (sc - 1, sc) if free(c, r))
     seen = {start}; q = deque([start])
     while q:
         c, r = q.popleft()
         for dc, dr in ((1,0),(-1,0),(0,1),(0,-1)):
-            n = (c + dc, r + dr)
+            n = ((c + dc) % C, (r + dr) % R) if wrap else (c + dc, r + dr)
             if n not in seen and free(*n): seen.add(n); q.append(n)
     problems, labels, kinds = [], set(), {'pad': 0, 'F': 0, 'T': 0}
     for r in range(R):
@@ -63,6 +67,37 @@ def check(lv, min_pads=5):
                 if not any((x, r - 2) in seen for x in range(c0, c1)): problems.append(f'pad {ch} @row {r} col {c0} unreachable')
             else:
                 c += 1
+    sweeps = []
+    for idx, mp in enumerate(moving_platforms or []):
+        free_drift = ('vx' in mp or 'vy' in mp)
+        ax = 0 if free_drift else mp['ampX']; ay = 0 if free_drift else mp['ampY']
+        x0 = mp['cx'] - ax; x1 = mp['cx'] + ax + mp['w']
+        y0 = mp['cy'] - ay; y1 = mp['cy'] + ay + mp['h']
+        if not wrap and (x0 < 1 or x1 > C - 1 or y0 < 1 or y1 > R - 1):
+            problems.append(f'moving platform {idx} sweep ({x0:.1f}..{x1:.1f}, {y0:.1f}..{y1:.1f}) out of bounds')
+        import math
+        for r in range(max(0, math.floor(y0)), min(R, math.ceil(y1))):
+            for c in range(max(0, math.floor(x0)), min(C, math.ceil(x1))):
+                if g[r][c] != '.' and g[r][c] != 'S':
+                    problems.append(f'moving platform {idx} sweep hits static tile {g[r][c]} at ({c},{r})')
+                    break
+        for j, (ox0, oy0, ox1, oy1) in enumerate(sweeps):
+            if x0 < ox1 and x1 > ox0 and y0 < oy1 and y1 > oy0:
+                problems.append(f'moving platform {idx} sweep overlaps platform {j}')
+        sweeps.append((x0, y0, x1, y1))
+        pad = mp.get('pad')
+        if pad:
+            ch = pad['label']
+            if ch.isdigit():
+                if ch in labels: problems.append(f'pad {ch} appears twice')
+                labels.add(ch); kinds['pad'] += 1
+            else: kinds[ch] += 1
+            pw = mp['cave']['padW'] if 'cave' in mp else mp['w']
+            if pw < 3: problems.append(f'moving pad {ch} narrower than 3 tiles')
+            if ch == 'T' and pw < 6: problems.append(f'moving teleport narrower than 6 tiles')
+            cx_i, cy_i = int(mp['cx']), int(mp['cy'])
+            if not wrap and not any((x, cy_i - 2) in seen for x in range(cx_i, cx_i + int(pw) - 1)):
+                problems.append(f'moving pad {ch} @({cx_i},{cy_i}) unreachable')
     if kinds['pad'] < min_pads: problems.append(f'fewer than {min_pads} passenger pads')
     if not kinds['F']: problems.append('no store')
     if not kinds['T']: problems.append('no teleport')
@@ -309,10 +344,44 @@ locales.append(('8-overdrive-canyon', 'Overdrive Canyon', 3.0, (4.5, 8), 4,
     'meteors': {'interval': 2.6, 'speed': 300, 'angleDeg': 68, 'radius': 9, 'maxActive': 4},
   }))
 
+# 9 — Drift Belt (96x36, 3x): boundless classic-Asteroids wrap-around space with ZERO blocks
+# and 7 free-drifting, elastically bouncing organic asteroids (every platform on an asteroid,
+# every asteroid carries a platform — including an organic hollowed-out Cave Asteroid for Pad 5).
+db = L(96, 36, border=False)
+db.g[27][12] = 'S'  # Spawn lands directly on drifting Pad 1 asteroid (cx=10..15, cy=28)
+locales.append(('9-drift-belt', 'Drift Belt', 3.5, (4.5, 8), 3,
+  'Boundless Asteroids-style space: all 7 platforms drift and bounce on organic asteroids—fly inside the Cave Asteroid for Pad 5!', db, {
+    'theme': 'asteroid',
+    'wrap': True,
+    'gravityScale': 0.45,
+    'burnScale': 1.15,
+    'movingPlatforms': [
+      # Pad 1 (Spawn asteroid — chunky potato rock drifting gently ENE)
+      {'cx': 10, 'cy': 28, 'w': 5, 'h': 2, 'ampX': 0, 'ampY': 0, 'period': 1, 'vx': 18, 'vy': -10, 'shape': 'chunky', 'pad': {'label': '1'}},
+      # Pad 2 (Deep-spired asteroid drifting WSW)
+      {'cx': 28, 'cy': 7, 'w': 4, 'h': 3, 'ampX': 0, 'ampY': 0, 'period': 1, 'vx': -20, 'vy': 14, 'shape': 'spire', 'pad': {'label': '2'}},
+      # Pad 3 (Asymmetric wedge asteroid drifting ESE)
+      {'cx': 48, 'cy': 25, 'w': 4, 'h': 2, 'ampX': 0, 'ampY': 0, 'period': 1, 'vx': 24, 'vy': 12, 'shape': 'wedge', 'pad': {'label': '3'}},
+      # Pad 4 (Twin-lobed binary asteroid drifting WNW)
+      {'cx': 64, 'cy': 6, 'w': 4, 'h': 2, 'ampX': 0, 'ampY': 0, 'period': 1, 'vx': -22, 'vy': -14, 'shape': 'twin', 'pad': {'label': '4'}},
+      # Pad 5 (Organic hollowed-out Cave Asteroid — zero blocks, heavy mass, slow drift!)
+      {
+        'cx': 75, 'cy': 14, 'w': 12, 'h': 8, 'ampX': 0, 'ampY': 0, 'period': 1,
+        'vx': -14, 'vy': 8, 'shape': 'monolith',
+        'cave': {'roofH': 1.7, 'backW': 2.0, 'floorH': 1.7, 'padOffsetX': 2.5, 'padW': 5.5},
+        'pad': {'label': '5'},
+      },
+      # Store F (Single drifting crescent fuel barge)
+      {'cx': 44, 'cy': 11, 'w': 4, 'h': 3, 'ampX': 0, 'ampY': 0, 'period': 1, 'vx': 16, 'vy': -18, 'shape': 'crescent', 'pad': {'label': 'F'}},
+      # Teleport T (Single drifting 6-tile tabular slab asteroid)
+      {'cx': 22, 'cy': 21, 'w': 6, 'h': 2, 'ampX': 0, 'ampY': 0, 'period': 1, 'vx': -16, 'vy': -12, 'shape': 'slab', 'pad': {'label': 'T'}},
+    ],
+  }))
+
 base_area = next(lv.C * lv.R for slug, _, _, _, _, _, lv, _ in locales if slug == '1-first-shift')
 bad = False
 for slug, name, mult, (interval, max_waiting), rivals, hint, lv, extra in locales:
-    probs = check(lv, min_pads=3 if extra.get('noRivals') else 5)
+    probs = check(lv, min_pads=3 if extra.get('noRivals') else 5, moving_platforms=extra.get('movingPlatforms'), wrap=bool(extra.get('wrap')))
     print(f'{slug} ({lv.C}x{lv.R}, {lv.C * lv.R / base_area:.2g}x area): {"OK" if not probs else probs}')
     bad |= bool(probs)
     # Passenger demand is per locale (a new passenger every ~interval s while fewer than

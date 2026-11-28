@@ -8,7 +8,7 @@ import { post, toCents } from './accounts';
  */
 import { DT, TAXI, TICK_RATE } from './constants';
 import { envForceAt, pointHitsLaser, pointInGravityCore, windAt } from './env';
-import { isSolid } from './level';
+import { isSolid, pointHitsPlatforms, wrapCoord, wrapDelta } from './level';
 import { nextRandom } from './rng';
 import { atService } from './service';
 import { atStore, crash, inSafeZone, isActive, type SimEvent, type SimState, type Taxi } from './sim';
@@ -397,8 +397,13 @@ function moveMissile(
   for (let i = 0; i < n && !taxi && !wall && !flare; i++) {
     m.x += dx / n;
     m.y += dy / n;
+    if (s.level.wrap) {
+      m.x = wrapCoord(m.x, s.level.width);
+      m.y = wrapCoord(m.y, s.level.height);
+    }
     wall =
       isSolid(s.level, Math.floor(m.x / ts), Math.floor(m.y / ts)) ||
+      (s.level.movingPlatforms.length > 0 && pointHitsPlatforms(s.level, m.x, m.y, MISSILE_RADIUS)) ||
       (s.level.laserGates.length > 0 && pointHitsLaser(s.level, s.tick, m.x, m.y, MISSILE_RADIUS + 2)) ||
       (s.level.gravityWells.length > 0 && pointInGravityCore(s.level, m.x, m.y, MISSILE_RADIUS)) ||
       (s.meteors.length > 0 &&
@@ -526,7 +531,9 @@ function nearestTarget(s: SimState, ownerId: string, x: number, y: number): Taxi
   let bestD = Infinity;
   for (const t of s.taxis) {
     if (t.id === ownerId || !targetable(s, t)) continue;
-    const d = Math.hypot(t.x - x, t.y - y);
+    const dx = s.level.wrap ? wrapDelta(x, t.x, s.level.width) : t.x - x;
+    const dy = s.level.wrap ? wrapDelta(y, t.y, s.level.height) : t.y - y;
+    const d = Math.hypot(dx, dy);
     if (d < bestD) {
       best = t;
       bestD = d;

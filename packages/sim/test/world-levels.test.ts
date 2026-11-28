@@ -21,11 +21,11 @@ function run(s: SimState, seconds: number): SimEvent[] {
 }
 
 describe('the world locales', () => {
-  it('have the expected sizes and fare multipliers across all nine locales', () => {
+  it('have the expected sizes and fare multipliers across all ten locales', () => {
     const area = levels.map(({ level }) => level.cols * level.rows);
     const firstShiftArea = area[1]!;
-    expect(area.map((a) => Math.round((a / firstShiftArea) * 100) / 100)).toEqual([0.32, 1, 2, 4, 2, 2.5, 2, 3, 3]);
-    expect(levels.map(({ level }) => level.fareMultiplier)).toEqual([0.5, 1, 1.33, 2, 1.6, 2.5, 1.75, 2.6, 3]);
+    expect(area.map((a) => Math.round((a / firstShiftArea) * 100) / 100)).toEqual([0.32, 1, 2, 4, 2, 2.5, 2, 3, 3, 3]);
+    expect(levels.map(({ level }) => level.fareMultiplier)).toEqual([0.5, 1, 1.33, 2, 1.6, 2.5, 1.75, 2.6, 3, 3.5]);
     expect(levels[0]!.level).toMatchObject({ cols: 26, rows: 14, rivals: 0, noRivals: true, firstFareLocalOnly: true });
     expect(levels[1]!.level).toMatchObject({ cols: 64, rows: 18 });
   });
@@ -49,7 +49,10 @@ describe('the world locales', () => {
       const boarded = run(s, 6).find((e) => e.type === 'passengerBoarded');
       expect(boarded).toBeDefined();
       const p = s.passengers[0]!;
-      const d = Math.hypot(to.x + to.w / 2 - (from.x + from.w / 2), to.y - from.y);
+      const d = Math.hypot(
+        (to.baseX ?? to.x) + to.w / 2 - ((from.baseX ?? from.x) + from.w / 2),
+        (to.baseY ?? to.y) - (from.baseY ?? from.y),
+      );
       const base = DEFAULT_CONFIG.baseFare + DEFAULT_CONFIG.farePerDistance * d;
       expect(p.fare).toBeCloseTo(Math.round(base * level.fareMultiplier * 100) / 100, 1);
       expect(p.tip).toBeCloseTo((p.fare * DEFAULT_CONFIG.tipPercent) / 100, 6);

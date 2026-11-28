@@ -8,9 +8,9 @@
 - **Losing your taxi:** A taxi is destroyed at zero hull points or when it crashes/strands after running dry. The world keeps running, and the lost taxi remains permanently on record with its final history and cause of destruction. Press `Enter` to launch a fresh taxi in Santa Monica (retaining your account balance, with a full tank, full hull, 3 missiles, and 3 flares), `V` for Game review, or `Q` for the lobby.
 - **Rivals never respawn:** Destroyed rival taxis stay permanently dead, though new named rivals may enter the world if passenger demand exceeds supply.
 
-## The nine locales
+## The ten locales
 
-All nine locales exist and simulate simultaneously — even the ones you aren't currently visiting. Rival taxis pick up fares, refuel, fight, and teleport between cities while you fly elsewhere (Santa Monica is a peaceful, rival-free starter beach).
+All ten locales exist and simulate simultaneously — even the ones you aren't currently visiting. Rival taxis pick up fares, refuel, fight, and teleport between cities while you fly elsewhere (Santa Monica is a peaceful, rival-free starter beach).
 
 | Locale | Size (tiles) | Fare Multiplier | Environment & Hazards |
 |---|---:|---:|---|
@@ -23,10 +23,11 @@ All nine locales exist and simulate simultaneously — even the ones you aren't 
 | **Polarity Yard** | 64 × 36 | ×1.75 | Normal, Low-G, and Inverted-G magnetic bays (use down thrust to settle in inverted bays). |
 | **Gridlock Vault** | 96 × 36 | ×2.60 | Timed laser gates and sliding Electroid barriers with shortcuts and detours. |
 | **Overdrive Canyon** | 96 × 36 | ×3.00 | Turbo-charged thrusters, heavy gravity, higher burn, and falling meteors. |
+| **Drift Belt** | 96 × 36 | ×3.50 | Outer-space asteroid belt with low-G physics, drifting landing pads and fuel stores, and tumbling boulders. |
 
 ### Teleports
 
-Violet teleport pads connect all nine locales for free. Land on a teleport and choose any destination (`1`–`8` or click). The panel shows each locale's fare multiplier, size, waiting passengers, and active taxis. Taxis parked on a teleport cannot be targeted by missiles.
+Violet teleport pads connect all ten locales for free. Land on a teleport and choose any destination (`1`–`9` or click). The panel shows each locale's fare multiplier, size, waiting passengers, and active taxis. Taxis parked on a teleport cannot be targeted by missiles.
 
 ## Flight, landing gear, and fuel
 
@@ -67,7 +68,7 @@ Press **E** to eject your passenger. A passenger close to safe ground hops out. 
 
 Named rival taxis operate under their own autopilot — picking up passengers, shopping for fuel/repairs/ammo, firing missiles, and teleporting between locales. When passengers wait unclaimed in a locale, the world's population manager either dispatches an idle, healthy rival from a locale with spare capacity or spawns a new rival (bounded by per-locale and world caps).
 
-Press `Tab` to open the **World Overview**, inspect activity across all nine locales, or spectate any locale or taxi (`[` / `]` to cycle, `Esc` to return to your cab).
+Press `Tab` to open the **World Overview**, inspect activity across all ten locales, or spectate any locale or taxi (`[` / `]` to cycle, `Esc` to return to your cab).
 
 ## Game review
 

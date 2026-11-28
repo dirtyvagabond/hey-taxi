@@ -12,6 +12,7 @@ import w5 from '../../../levels/world/5-singularity-station.json';
 import w6 from '../../../levels/world/6-polarity-yard.json';
 import w7 from '../../../levels/world/7-gridlock-vault.json';
 import w8 from '../../../levels/world/8-overdrive-canyon.json';
+import w9 from '../../../levels/world/9-drift-belt.json';
 import type { LevelData } from './level';
 
 export interface ContentLevel {
@@ -37,12 +38,13 @@ export const WORLD_LEVELS = [
   'world/6-polarity-yard',
   'world/7-gridlock-vault',
   'world/8-overdrive-canyon',
+  'world/9-drift-belt',
 ] as const;
 
 /**
- * The game's nine locales (they all exist at once; teleports connect them):
- * a beginner beach sanctuary, three cities, plus five hazard locales
- * (wind, gravity well, polarity, laser gates, meteors).
+ * The game's ten locales (they all exist at once; teleports connect them):
+ * a beginner beach sanctuary, three cities, plus six hazard locales
+ * (wind, gravity well, polarity, laser gates, meteors, drifting asteroids).
  */
 export const WORLD: ContentLevel[] = [
   entry('world/0-santa-monica', w0 as LevelData),
@@ -54,6 +56,7 @@ export const WORLD: ContentLevel[] = [
   entry('world/6-polarity-yard', w6 as LevelData),
   entry('world/7-gridlock-vault', w7 as LevelData),
   entry('world/8-overdrive-canyon', w8 as LevelData),
+  entry('world/9-drift-belt', w9 as LevelData),
 ];
 
 export const ALL_LEVELS: ContentLevel[] = WORLD;

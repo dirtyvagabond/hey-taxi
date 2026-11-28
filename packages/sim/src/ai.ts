@@ -13,7 +13,7 @@
  */
 import { DT, Input, TAXI, TICK_RATE } from './constants';
 import { envForceAt, laserState, pointInGravityCore, windAt } from './env';
-import { boxHitsSolid, padIndexAt, type Level, type Pad } from './level';
+import { boxHitsSolid, padIndexAt, platformSolidBoxes, wrapCoord, wrapDelta, type Level, type Pad } from './level';
 import { hasLineOfFire, shopMultiplier, storeItem, targetable, type StoreItem } from './missiles';
 import { acceptsDriver, canBoardHere, walkable } from './journeys';
 import { PASSENGER, riderOf } from './passengers';
@@ -479,6 +479,7 @@ function moveInput(s: SimState, t: Taxi, ai: AiState, prof: AiProfile): number {
     ai.landing = false;
   }
   // The landing spot (or hunted target) can shift: replan when it moves enough.
+  const goalMoving = !goal.hunt && goal.padIndex >= 0 && (s.level.pads[goal.padIndex]?.platformIndex ?? -1) >= 0;
   if (goal.hunt) {
     if (ai.huntX === undefined || ai.huntY === undefined || Math.hypot(goal.hunt.x - ai.huntX, goal.hunt.y - ai.huntY) > 60) {
       ai.replanIn = 0;
@@ -486,7 +487,7 @@ function moveInput(s: SimState, t: Taxi, ai: AiState, prof: AiProfile): number {
       ai.huntY = goal.hunt.y;
     }
     ai.landing = false;
-  } else if (goal.padIndex !== ai.padIndex || Math.abs(goal.landX - ai.landX) > 4) {
+  } else if (goal.padIndex !== ai.padIndex || (!goalMoving && Math.abs(goal.landX - ai.landX) > 4)) {
     ai.replanIn = 0;
     ai.landing = false;
   }
@@ -495,7 +496,11 @@ function moveInput(s: SimState, t: Taxi, ai: AiState, prof: AiProfile): number {
   ai.landX = goal.landX;
   if (--ai.replanIn <= 0) {
     ai.route = plan(s, t, goal);
-    ai.replanIn = goal.hunt ? Math.max(12, Math.round(prof.replanTicks * 0.7)) : prof.replanTicks;
+    ai.replanIn = goal.hunt
+      ? Math.max(12, Math.round(prof.replanTicks * 0.7))
+      : goalMoving
+        ? Math.min(45, prof.replanTicks)
+        : prof.replanTicks;
   }
 
   if (--ai.checkIn <= 0) {
@@ -830,6 +835,12 @@ function nearest<T>(items: T[], t: Taxi, pos: (item: T) => [number, number]): T 
 
 /** Grid cell (c, r) = tiles (c, r) and (c+1, r): room for the 48×34 taxi. */
 function cellFree(level: Level, c: number, r: number): boolean {
+  if (level.wrap) {
+    const wc = ((c % level.cols) + level.cols) % level.cols;
+    const wc1 = (wc + 1) % level.cols;
+    const wr = ((r % level.rows) + level.rows) % level.rows;
+    return !level.solid[wr * level.cols + wc] && !level.solid[wr * level.cols + wc1];
+  }
   if (c < 0 || r < 0 || c + 1 >= level.cols || r >= level.rows) return false;
   const i = r * level.cols + c;
   return !level.solid[i] && !level.solid[i + 1];
@@ -845,6 +856,8 @@ function cellY(level: Level, r: number): number {
 }
 
 function nearestFreeCell(level: Level, c0: number, r0: number): [number, number] | null {
+  const normC = (c: number) => (level.wrap ? ((c % level.cols) + level.cols) % level.cols : c);
+  const normR = (r: number) => (level.wrap ? ((r % level.rows) + level.rows) % level.rows : r);
   for (let radius = 0; radius <= 3; radius++) {
     let best: [number, number] | null = null;
     let bestD = Infinity;
@@ -853,7 +866,7 @@ function nearestFreeCell(level: Level, c0: number, r0: number): [number, number]
         if (Math.max(Math.abs(dr), Math.abs(dc)) !== radius || !cellFree(level, c0 + dc, r0 + dr)) continue;
         const d = dc * dc + dr * dr;
         if (d < bestD) {
-          best = [c0 + dc, r0 + dr];
+          best = [normC(c0 + dc), normR(r0 + dr)];
           bestD = d;
         }
       }
@@ -867,26 +880,109 @@ function nearestFreeCell(level: Level, c0: number, r0: number): [number, number]
 function plan(s: SimState, t: Taxi, goal: Goal): number[] {
   const level = s.level;
   const ts = level.tileSize;
-  const startCell = nearestFreeCell(level, Math.round(t.x / ts - 1), Math.floor((t.y - TAXI.halfH) / ts));
   if (goal.hunt) {
+    if (!level.hasStaticSolid && level.wrap) return [goal.hunt.x, goal.hunt.y];
+    const startCell = nearestFreeCell(level, Math.round(t.x / ts - 1), Math.floor((t.y - TAXI.halfH) / ts));
     const targetCell = nearestFreeCell(level, Math.round(goal.hunt.x / ts - 1), Math.floor((goal.hunt.y - TAXI.halfH) / ts));
     if (!startCell || !targetCell) return [goal.hunt.x, goal.hunt.y];
-    const people = s.passengers.filter((p) => p.state === 'waiting' || p.state === 'walking');
+    const people = s.passengers.filter((p) => p.state === 'waiting' || p.state === 'walking' || p.state === 'parachuting');
     const cells = shortestPath(level, people, startCell, targetCell);
     const route: number[] = [];
     for (const [c, r] of cells) route.push(cellX(level, c), cellY(level, r));
     return route;
   }
-  const padRow = Math.round((goal.surfaceY ?? level.pads[goal.padIndex]!.y) / ts);
   const hover = hoverPoint(level, goal);
+  // In a wall-free wrap locale (e.g. Drift Belt), skip grid A* completely — route directly (via cave mouth if needed).
+  if (!level.hasStaticSolid && level.wrap) {
+    const route: number[] = [];
+    // 1. If currently inside a non-target cave asteroid, exit straight out its west mouth first.
+    for (let mi = 0; mi < level.movingPlatforms.length; mi++) {
+      const mp = level.movingPlatforms[mi]!;
+      if (!mp.cave || mp.padIndex === goal.padIndex) continue;
+      const pose = level.platformPoses[mi]!;
+      const relX = wrapDelta(pose.x, t.x, level.width);
+      const relY = wrapDelta(pose.y, t.y, level.height);
+      if (relX > 0 && relX < mp.w && relY > mp.cave.roofH && relY < mp.h - mp.cave.floorH) {
+        route.push(wrapCoord(pose.x - 64, level.width), wrapCoord(pose.y + mp.h - mp.cave.floorH - 58, level.height));
+        break;
+      }
+    }
+    if (goal.padIndex >= 0) {
+      const pad = level.pads[goal.padIndex];
+      const plat = pad && pad.platformIndex >= 0 ? level.movingPlatforms[pad.platformIndex] : undefined;
+      if (plat?.cave) {
+        const pose = level.platformPoses[plat.index]!;
+        const relX = wrapDelta(pose.x, t.x, level.width);
+        const relY = wrapDelta(pose.y, t.y, level.height);
+        const insideMouth = relX > -10 && relX < plat.w && relY > plat.cave.roofH && relY < plat.h - plat.cave.floorH;
+        if (!insideMouth) {
+          // If east of the cave mouth (behind the back wall), clear over/under the cave and around its west corner first.
+          if (relX > -20 && relY > -60 && relY < plat.h + 60) {
+            const aboveY = wrapCoord(pose.y - 80, level.height);
+            const belowY = wrapCoord(pose.y + plat.h + 80, level.height);
+            const wy = Math.abs(wrapDelta(t.y, aboveY, level.height)) <= Math.abs(wrapDelta(t.y, belowY, level.height)) ? aboveY : belowY;
+            if (relX > plat.w * 0.5) route.push(wrapCoord(pose.x + plat.w * 0.5, level.width), wy);
+            route.push(wrapCoord(pose.x - 72, level.width), wy);
+          }
+          route.push(wrapCoord(pose.x - 72, level.width), wrapCoord(pose.y + plat.h - plat.cave.floorH - 58, level.height));
+        }
+      } else if (plat && route.length === 0) {
+        // If directly underneath our target asteroid, route around its nearer side first.
+        const pose = level.platformPoses[plat.index]!;
+        const cx = pose.x + plat.w * 0.5;
+        const dx = wrapDelta(cx, t.x, level.width);
+        const dy = wrapDelta(pose.y, t.y, level.height);
+        if (dy > 0 && dy < plat.h + 120 && Math.abs(dx) < plat.w * 0.5 + 55) {
+          const sideX = dx >= 0 ? pose.x + plat.w + 55 : pose.x - 55;
+          route.push(wrapCoord(sideX, level.width), wrapCoord(hover[1], level.height));
+        }
+      }
+      // If a non-target asteroid sits between us and hover, route around its nearer vertical edge (O(N) vs A*).
+      const hdx = wrapDelta(t.x, hover[0], level.width);
+      const hdy = wrapDelta(t.y, hover[1], level.height);
+      const hdist = Math.hypot(hdx, hdy);
+      if (route.length === 0 && hdist > 60) {
+        for (let mi = 0; mi < level.movingPlatforms.length; mi++) {
+          const mp = level.movingPlatforms[mi]!;
+          if (mp.padIndex === goal.padIndex) continue;
+          const pose = level.platformPoses[mi]!;
+          const ocx = pose.x + mp.w * 0.5;
+          const ocy = pose.y + mp.h * 0.5;
+          const odx = wrapDelta(t.x, ocx, level.width);
+          const ody = wrapDelta(t.y, ocy, level.height);
+          const proj = (odx * hdx + ody * hdy) / hdist;
+          if (proj <= 0 || proj >= hdist) continue;
+          const ux = hdx / hdist;
+          const uy = hdy / hdist;
+          const perp = Math.abs(odx * -uy + ody * ux);
+          const halfPerp = Math.abs(uy) * (mp.w * 0.5) + Math.abs(ux) * (mp.h * 0.5) + 58;
+          if (perp < halfPerp) {
+            const aboveY = wrapCoord(pose.y - 80, level.height);
+            const belowY = wrapCoord(pose.y + mp.h + 80, level.height);
+            const wy = Math.abs(wrapDelta(t.y, aboveY, level.height)) <= Math.abs(wrapDelta(t.y, belowY, level.height)) ? aboveY : belowY;
+            const wx = Math.abs(odx) < mp.w * 0.5 + 80 ? t.x : wrapCoord(ocx, level.width);
+            route.push(wx, wy);
+            break;
+          }
+        }
+      }
+    }
+    route.push(...hover);
+    return route;
+  }
+  const startCell = nearestFreeCell(level, Math.round(t.x / ts - 1), Math.floor((t.y - TAXI.halfH) / ts));
+  const normC = (c: number) => (level.wrap ? ((c % level.cols) + level.cols) % level.cols : c);
+  const normR = (r: number) => (level.wrap ? ((r % level.rows) + level.rows) % level.rows : r);
+  const padRow = Math.round((goal.surfaceY ?? level.pads[goal.padIndex]!.y) / ts);
   // Aim for the cell two rows above the pad if there's room (cleaner approach), else one row.
   const goalCol = Math.round(goal.landX / ts - 1);
   const goalCell =
-    (cellFree(level, goalCol, padRow - 2) && cellFree(level, goalCol, padRow - 1) ? [goalCol, padRow - 2] : null) ??
-    nearestFreeCell(level, goalCol, padRow - 1);
+    (cellFree(level, goalCol, padRow - 2) && cellFree(level, goalCol, padRow - 1)
+      ? ([normC(goalCol), normR(padRow - 2)] as [number, number])
+      : null) ?? nearestFreeCell(level, goalCol, padRow - 1);
   if (!startCell || !goalCell) return hover;
 
-  const people = s.passengers.filter((p) => p.state === 'waiting' || p.state === 'walking');
+  const people = s.passengers.filter((p) => p.state === 'waiting' || p.state === 'walking' || p.state === 'parachuting');
   const cells = shortestPath(level, people, startCell, goalCell as [number, number]);
   const route: number[] = [];
   for (const [c, r] of cells) route.push(cellX(level, c), cellY(level, r));
@@ -951,8 +1047,13 @@ function shortestPath(
   heap.clear();
   const start = idx(from[0], from[1]);
   const goal = idx(toC, toR);
+  const heur = (c: number, r: number) => {
+    const dc = Math.abs(c - toC);
+    const dr = Math.abs(r - toR);
+    return level.wrap ? Math.min(dc, cols - dc) + Math.min(dr, rows - dr) : dc + dr;
+  };
   dist[start] = 0;
-  heap.push(Math.abs(from[0] - toC) + Math.abs(from[1] - toR), start);
+  heap.push(heur(from[0], from[1]), start);
   const dirs = [
     [1, 0],
     [-1, 0],
@@ -965,19 +1066,20 @@ function shortestPath(
     const c = i % cols;
     const r = (i - c) / cols;
     const d = dist[i]!;
-    if (f > d + Math.abs(c - toC) + Math.abs(r - toR) + 1e-9) continue;
+    if (f > d + heur(c, r) + 1e-9) continue;
     for (let di = 0; di < 4; di++) {
       const [dc, dr] = dirs[di]!;
-      const nc = c + dc;
-      const nr = r + dr;
+      const nc = level.wrap ? (c + dc + cols) % cols : c + dc;
+      const nr = level.wrap ? (r + dr + rows) % rows : r + dr;
       if (!cellFree(level, nc, nr)) continue;
       const tight =
         !cellFree(level, nc + 1, nr) ||
         !cellFree(level, nc - 1, nr) ||
         !cellFree(level, nc, nr + 1) ||
         !cellFree(level, nc, nr - 1);
-      const below = (nr + 1) * cols + nc;
-      const skim = nr + 1 >= rows || level.solid[below] === 1 || level.solid[below + 1] === 1;
+      const belowRow = level.wrap ? (nr + 1) % rows : nr + 1;
+      const nc1 = level.wrap ? (nc + 1) % cols : nc + 1;
+      const skim = (!level.wrap && belowRow >= rows) || level.solid[belowRow * cols + nc] === 1 || level.solid[belowRow * cols + nc1] === 1;
       // A one-row slot (blocked above and below) leaves the 34u-tall taxi ~6u of slack.
       const squeeze = !cellFree(level, nc, nr - 1) && !cellFree(level, nc, nr + 1);
       let extra = (tight ? 2 : 0) + (skim ? 8 : 0) + (squeeze ? 40 : 0);
@@ -1004,7 +1106,7 @@ function shortestPath(
       if (nd < dist[ni]!) {
         dist[ni] = nd;
         prev[ni] = i;
-        heap.push(nd + Math.abs(nc - toC) + Math.abs(nr - toR), ni);
+        heap.push(nd + heur(nc, nr), ni);
       }
     }
   }
@@ -1078,10 +1180,22 @@ function follow(s: SimState, t: Taxi, ai: AiState, prof: AiProfile, hunt?: { x: 
   const n = pts.length / 2;
   if (n === 0) return steer(s, t, 0, 0, prof.steerDeadband);
 
+  // Keep the final hover waypoint locked to a moving pad's live position so we never chase stale coords.
+  if (!hunt && ai.padIndex >= 0 && (level.pads[ai.padIndex]?.platformIndex ?? -1) >= 0) {
+    const [hx, hy] = hoverPoint(level, { key: ai.goal, padIndex: ai.padIndex, landX: ai.landX, surfaceY: ai.surfaceY });
+    pts[pts.length - 2] = hx;
+    pts[pts.length - 1] = hy;
+  }
+
   let near = 0;
   let nearD = Infinity;
   for (let k = 0; k < n; k++) {
-    const d = Math.hypot(pts[2 * k]! - t.x, pts[2 * k + 1]! - t.y);
+    const px = pts[2 * k]!;
+    const py = pts[2 * k + 1]!;
+    const d = Math.hypot(
+      level.wrap ? wrapDelta(t.x, px, level.width) : px - t.x,
+      level.wrap ? wrapDelta(t.y, py, level.height) : py - t.y,
+    );
     if (d < nearD) {
       near = k;
       nearD = d;
@@ -1089,23 +1203,32 @@ function follow(s: SimState, t: Taxi, ai: AiState, prof: AiProfile, hunt?: { x: 
   }
   // Cut corners: aim at the farthest upcoming waypoint we can fly straight to without
   // touching a wall, a standing passenger, or a gravity well core.
-  const people = s.passengers.filter((p) => p.state === 'waiting' || p.state === 'walking');
+  const targetPad = !hunt && ai.padIndex >= 0 ? level.pads[ai.padIndex] : undefined;
+  const targetPlatIdx = targetPad && targetPad.platformIndex >= 0 ? targetPad.platformIndex : -1;
+  const targetPose = targetPlatIdx >= 0 ? level.platformPoses[targetPlatIdx]! : null;
+  const targetPlat = targetPlatIdx >= 0 ? level.movingPlatforms[targetPlatIdx] : undefined;
+  const people = s.passengers.filter((p) => p.state === 'waiting' || p.state === 'walking' || p.state === 'parachuting');
   let j = near;
-  for (let k = Math.min(n - 1, near + LOOKAHEAD); k > near; k--) {
-    if (clearLine(level, people, t.x, t.y, pts[2 * k]!, pts[2 * k + 1]!)) {
-      j = k;
-      break;
+  if (targetPose && !targetPlat?.cave && clearLine(level, people, t.x, t.y, pts[2 * (n - 1)]!, pts[2 * (n - 1) + 1]!)) {
+    j = n - 1;
+  } else {
+    for (let k = Math.min(n - 1, near + LOOKAHEAD); k > near; k--) {
+      if (targetPose && !targetPlat?.cave && k === n - 1) continue;
+      if (clearLine(level, people, t.x, t.y, pts[2 * k]!, pts[2 * k + 1]!)) {
+        j = k;
+        break;
+      }
     }
   }
   if (j === near && nearD < 20 && near < n - 1) j = near + 1;
 
   const tx = pts[2 * j]!;
   const ty = pts[2 * j + 1]!;
-  const dx = tx - t.x;
-  const dy = ty - t.y;
+  const dx = level.wrap ? wrapDelta(t.x, tx, level.width) : tx - t.x;
+  const dy = level.wrap ? wrapDelta(t.y, ty, level.height) : ty - t.y;
   const d = Math.hypot(dx, dy);
 
-  if (!hunt && j === n - 1 && d < 30) {
+  if (!hunt && j === n - 1 && d < (targetPose ? 55 : 30)) {
     ai.landing = true;
     return land(s, t, ai, prof);
   }
@@ -1120,15 +1243,60 @@ function follow(s: SimState, t: Taxi, ai: AiState, prof: AiProfile, hunt?: { x: 
   const huntDist = hunt ? Math.hypot(hunt.x - t.x, hunt.y - t.y) : Infinity;
   const standoff = hunt && huntDist < 170;
   const spd = standoff ? 25 : Math.min(prof.cruiseSpeed, 20 + d * 1.8);
-  const vxd = d > 0.5 ? (dx / d) * spd : 0;
-  const vyd = d > 0.5 ? clamp((dy / d) * spd, -prof.climbSpeed, prof.descendSpeed) : 0;
+  const leadVx = targetPose && j === n - 1 && d < 220 ? targetPose.vx : 0;
+  const leadVy = targetPose && j === n - 1 && d < 220 ? targetPose.vy : 0;
+  const vxd = (d > 0.5 ? (dx / d) * spd : 0) + leadVx;
+  const vyd = clamp((d > 0.5 ? (dy / d) * spd : 0) + leadVy, -prof.climbSpeed, prof.descendSpeed);
   const [ax, ay] = separation(s, t, prof);
+  const [px, py] = platformAvoidance(level, t, ai.padIndex);
   // Traveling: gear up (once clear of the pad we lifted off from), so the side jets work.
   const climbingOff = nearPadBelow(level, t, PASSENGER.height + 4);
   return (
-    steer(s, t, vxd + ax, clamp(vyd + ay, -prof.climbSpeed, prof.descendSpeed), prof.steerDeadband) |
+    steer(s, t, vxd + ax + px, clamp(vyd + ay + py, -prof.climbSpeed, prof.descendSpeed), prof.steerDeadband) |
     gear(t, climbingOff && t.gearDown)
   );
+}
+
+/** Gentle repulsive nudge away from drifting platforms/boulders we are not landing on. */
+function platformAvoidance(level: Level, t: Taxi, targetPadIndex: number): [number, number] {
+  if (!level.movingPlatforms.length) return [0, 0];
+  let ax = 0;
+  let ay = 0;
+  const margin = 54;
+  for (let i = 0; i < level.movingPlatforms.length; i++) {
+    const p = level.movingPlatforms[i]!;
+    const pose = level.platformPoses[i]!;
+    const boxes = platformSolidBoxes(p, pose);
+    for (let bi = 0; bi < boxes.length; bi++) {
+      const [bx0, by0, bx1, by1] = boxes[bi]!;
+      const px = bx0 + pose.vx * 0.3;
+      const py = by0 + pose.vy * 0.35;
+      const bw = bx1 - bx0;
+      const bh = by1 - by0;
+      const isTargetFloor = p.padIndex >= 0 && p.padIndex === targetPadIndex && (!p.cave || bi === 2);
+      if (isTargetFloor && t.y < by0) continue;
+      const rx = level.wrap ? px + bw * 0.5 + wrapDelta(px + bw * 0.5, t.x, level.width) : t.x;
+      const ry = level.wrap ? py + bh * 0.5 + wrapDelta(py + bh * 0.5, t.y, level.height) : t.y;
+      const cx = clamp(rx, px, px + bw);
+      const topPad = p.padIndex >= 0 && (!p.cave || bi === 2) ? PASSENGER.height + 6 : 0;
+      const cy = clamp(ry, py - topPad, py + bh);
+      const dx = rx - cx;
+      const dy = ry - cy;
+      const dist = Math.hypot(dx, dy);
+      if (dist < margin && dist > 1e-3) {
+        const f = ((margin - dist) / margin) * 175;
+        if (ry > py + bh * 0.6 && pose.vy > 4) {
+          const side = rx < px + bw * 0.5 ? -1 : 1;
+          ax += side * f;
+          ay += (dy / dist) * f * 0.5;
+        } else {
+          ax += (dx / dist) * f;
+          ay += (dy / dist) * f;
+        }
+      }
+    }
+  }
+  return [ax, ay];
 }
 
 /** Drifted this far off the spot with the gear down: raise it and line up again. */
@@ -1136,21 +1304,30 @@ const DRIFT_ABORT = 14;
 
 /**
  * Final approach, under the gear rule (no side thrust once the gear starts down):
- *  1. gear up: line up over the landing spot at hover height and brake to a stop;
+ *  1. gear up: line up over the landing spot at hover height and brake to a stop
+ *     (or match velocity with a moving platform);
  *  2. lower the gear (sideways motion now only coasts, damped by drag);
  *  3. with the gear fully down, descend straight onto the pad.
  * Drifting too far off the spot with the gear down raises it again to re-align.
  */
 function land(s: SimState, t: Taxi, ai: AiState, prof: AiProfile): number {
-  const surface = ai.surfaceY ?? s.level.pads[ai.padIndex]!.y;
+  const pad = ai.padIndex >= 0 ? s.level.pads[ai.padIndex] : undefined;
+  const platIdx = pad && pad.platformIndex >= 0 ? pad.platformIndex : -1;
+  const pose = platIdx >= 0 ? s.level.platformPoses[platIdx]! : null;
+  const platVx = pose ? pose.vx : 0;
+  const platVy = pose ? pose.vy : 0;
+  const isMoving = platIdx >= 0;
+
+  const surface = ai.surfaceY ?? pad!.y;
   const [, hoverY] = hoverPoint(s.level, { key: ai.goal, padIndex: ai.padIndex, landX: ai.landX, surfaceY: ai.surfaceY });
-  const dx = ai.landX - t.x;
+  const dx = s.level.wrap ? wrapDelta(t.x, ai.landX, s.level.width) : ai.landX - t.x;
+  const relVx = t.vx - platVx;
   // Never descend onto someone standing on the pad (allow extra margin for lateral drift).
   const someoneBelow = s.passengers.some(
     (p) =>
       (ai.surfaceY !== undefined ? Math.abs(p.y - surface) < 40 : p.padIndex === ai.padIndex) &&
       (p.state === 'waiting' || p.state === 'walking') &&
-      Math.abs(p.x - t.x) < TAXI.halfW + PASSENGER.halfW + 6,
+      Math.abs(s.level.wrap ? wrapDelta(t.x, p.x, s.level.width) : p.x - t.x) < TAXI.halfW + PASSENGER.halfW + (isMoving ? 18 : 6),
   );
   // The landing spot already keeps clear of parked taxis; only moving ones make us hold off.
   // Right of way: when two of us are landing on the same pad, the lower id goes first (the
@@ -1162,28 +1339,34 @@ function land(s: SimState, t: Taxi, ai: AiState, prof: AiProfile): number {
     true,
     (o) => o.npc && !!o.ai?.landing && o.ai.padIndex === ai.padIndex && o.id > t.id,
   );
-  const aligned = Math.abs(dx) <= prof.alignX && Math.abs(t.vx) <= prof.alignVx;
-  const drifted = Math.abs(dx) > DRIFT_ABORT;
-  const nearHover = Math.abs(hoverY - t.y) < 40 || t.gearDown;
+  const aligned =
+    Math.abs(dx) <= prof.alignX + (isMoving ? 6 : 0) &&
+    Math.abs(relVx) <= prof.alignVx + (isMoving ? 10 : 0);
+  const drifted = Math.abs(dx) > (isMoving ? 28 : DRIFT_ABORT);
+  const dyHover = s.level.wrap ? wrapDelta(t.y, hoverY, s.level.height) : hoverY - t.y;
+  const nearHover = Math.abs(dyHover) < (isMoving ? 45 : 40) || t.gearDown;
   const wind = s.level.wind ? windAt(s.level, s.tick, t.x, t.y) : null;
   // Wait out strong unsheltered wind gusts at hover height with gear up before descending.
   const strongGust = !!wind && (wind.gusting || wind.warning) && !wind.sheltered && Math.abs(wind.ax) > prof.gustWaitThreshold;
   // Low over the pad, the gear stays down (raising it there means touching down on the
   // belly); we climb back to hover height first, then raise it to line up again.
-  const low = t.y > hoverY + 20;
+  const low = -dyHover > 20;
   let wantDown = t.gearDown ? !drifted || low : aligned && nearHover && !someoneBelow && !strongGust;
   // Another taxi too close (it may be leaving the pad): hold position, gear up so we can dodge.
-  if (ax || ay) wantDown = t.gearDown && (low || Math.abs(t.y - hoverY) > 40) ? true : false;
+  if (ax || ay) wantDown = t.gearDown && (low || Math.abs(dyHover) > 40) ? true : false;
 
   let vyd: number;
-  if (!t.gearDown || t.gear < 1 || drifted || someoneBelow || strongGust || ax || ay) {
-    vyd = clamp((hoverY - t.y) * 3, -50, 40); // hold at hover height
+  if (someoneBelow && isMoving) {
+    vyd = platVy - 65; // climb briskly clear of a passenger on a rising/drifting pad
+  } else if (!t.gearDown || t.gear < 1 || drifted || someoneBelow || strongGust || ax || ay) {
+    vyd = platVy + clamp(dyHover * 3, isMoving ? -55 : -50, isMoving ? 45 : 40); // hold at hover height
   } else {
-    const h = surface - (t.y + TAXI.halfH + TAXI.gearLength);
-    vyd = clamp(18 + h * 0.7, 18, prof.landDescendMax);
+    const feet = t.y + TAXI.halfH + TAXI.gearLength;
+    const h = s.level.wrap ? wrapDelta(feet, surface, s.level.height) : surface - feet;
+    vyd = platVy + clamp((isMoving ? 24 : 18) + h * (isMoving ? 0.85 : 0.7), isMoving ? 24 : 18, prof.landDescendMax);
   }
-  const vxd = clamp(dx * 3, -40, 40);
-  return steer(s, t, vxd + ax, Math.min(vyd + ay, prof.landDescendMax), Math.max(2, prof.steerDeadband - 2), t.gear >= 1) | gear(t, wantDown);
+  const vxd = platVx + clamp(dx * 3, isMoving ? -45 : -40, isMoving ? 45 : 40);
+  return steer(s, t, vxd + ax, Math.min(vyd + ay, platVy + prof.landDescendMax), Math.max(2, prof.steerDeadband - 2), t.gear >= 1) | gear(t, wantDown);
 }
 
 /**
@@ -1249,8 +1432,8 @@ function separation(
   let ay = 0;
   for (const o of s.taxis) {
     if (o === t || !isActive(o) || (ignoreParked && o.status === 'landed') || ignore(o)) continue;
-    const dx = t.x - o.x;
-    const dy = t.y - o.y;
+    const dx = s.level.wrap ? wrapDelta(o.x, t.x, s.level.width) : t.x - o.x;
+    const dy = s.level.wrap ? wrapDelta(o.y, t.y, s.level.height) : t.y - o.y;
     const d = Math.hypot(dx, dy);
     if (d < 1e-3) continue;
     const fleeingThis = t.fleeFromId === o.id;
@@ -1314,8 +1497,8 @@ function separation(
   // Keep clear of airborne passengers so rivals don't run over parachutists.
   for (const p of s.passengers) {
     if (p.state !== 'parachuting' && p.state !== 'hopping') continue;
-    const dx = t.x - p.x;
-    const dy = t.y - (p.y - PASSENGER.height / 2);
+    const dx = s.level.wrap ? wrapDelta(p.x, t.x, s.level.width) : t.x - p.x;
+    const dy = s.level.wrap ? wrapDelta(p.y - PASSENGER.height / 2, t.y, s.level.height) : t.y - (p.y - PASSENGER.height / 2);
     const d = Math.hypot(dx, dy);
     if (d > 1 && d < 75) {
       const k = ((75 - d) / 75) * 140;
@@ -1357,6 +1540,17 @@ function pathBlockedByLaser(level: Level, tick: number, x0: number, y0: number, 
 function nearPadBelow(level: Level, t: Taxi, dist: number): boolean {
   const ts = level.tileSize;
   const feet = t.y + TAXI.halfH + TAXI.gearLength;
+  for (let i = 0; i < level.movingPlatforms.length; i++) {
+    const p = level.movingPlatforms[i]!;
+    if (p.padIndex < 0) continue;
+    const pad = level.pads[p.padIndex]!;
+    const dx = level.wrap ? wrapDelta(t.x, pad.x + pad.w * 0.5, level.width) : pad.x + pad.w * 0.5 - t.x;
+    const dy = level.wrap ? wrapDelta(feet, pad.y, level.height) : pad.y - feet;
+    const isTarget = t.ai?.padIndex === p.padIndex;
+    if (Math.abs(dx) < pad.w * 0.5 + TAXI.feetHalfW + (isTarget ? 4 : 12) && dy >= -4 && dy <= dist + (isTarget ? 0 : 28)) {
+      return true;
+    }
+  }
   const r0 = Math.floor(feet / ts);
   const r1 = Math.floor((feet + dist) / ts);
   const c0 = Math.floor((t.x - TAXI.feetHalfW) / ts);
@@ -1369,6 +1563,33 @@ function nearPadBelow(level: Level, t: Taxi, dist: number): boolean {
   return false;
 }
 
+/** Analytical segment-vs-AABB slab test for segment p(t) = (p0x + t*dx, p0y + t*dy), t in [0, 1]. */
+function segHitsBox(p0x: number, p0y: number, dx: number, dy: number, minX: number, maxX: number, minY: number, maxY: number): boolean {
+  let t0 = 0;
+  let t1 = 1;
+  if (Math.abs(dx) < 1e-9) {
+    if (p0x <= minX || p0x >= maxX) return false;
+  } else {
+    let a = (minX - p0x) / dx;
+    let b = (maxX - p0x) / dx;
+    if (a > b) { const tmp = a; a = b; b = tmp; }
+    if (a > t0) t0 = a;
+    if (b < t1) t1 = b;
+    if (t0 >= t1) return false;
+  }
+  if (Math.abs(dy) < 1e-9) {
+    if (p0y <= minY || p0y >= maxY) return false;
+  } else {
+    let a = (minY - p0y) / dy;
+    let b = (maxY - p0y) / dy;
+    if (a > b) { const tmp = a; a = b; b = tmp; }
+    if (a > t0) t0 = a;
+    if (b < t1) t1 = b;
+    if (t0 >= t1) return false;
+  }
+  return true;
+}
+
 /** Can the taxi (with a small margin) fly in a straight line between two points? */
 function clearLine(
   level: Level,
@@ -1379,11 +1600,60 @@ function clearLine(
   y1: number,
 ): boolean {
   const m = 4;
-  const d = Math.hypot(x1 - x0, y1 - y0);
+  const dx = level.wrap ? wrapDelta(x0, x1, level.width) : x1 - x0;
+  const dy = level.wrap ? wrapDelta(y0, y1, level.height) : y1 - y0;
+  // Fast O(N) analytical slab path for wall-free wrap locales (avoids ~100 step-march box queries).
+  if (!level.hasStaticSolid && level.wrap && level.gravityWells.length === 0) {
+    const W = level.width;
+    const H = level.height;
+    const mx = wrapCoord(x0 + dx * 0.5, W);
+    const my = wrapCoord(y0 + dy * 0.5, H);
+    const p0x = -dx * 0.5;
+    const p0y = -dy * 0.5;
+    const padX = TAXI.halfW + m;
+    const padTop = TAXI.halfH + m;
+    const padBot = TAXI.halfH + TAXI.gearLength + m;
+    const hitsSub = (sx0: number, sy0: number, sx1: number, sy1: number) => {
+      const hw = (sx1 - sx0) * 0.5;
+      const hh = (sy1 - sy0) * 0.5;
+      const cx = wrapDelta(mx, sx0 + hw, W);
+      const cy = wrapDelta(my, sy0 + hh, H);
+      return segHitsBox(p0x, p0y, dx, dy, cx - hw - padX, cx + hw + padX, cy - hh - padBot, cy + hh + padTop);
+    };
+    const mps = level.movingPlatforms;
+    const poses = level.platformPoses;
+    for (let i = 0; i < mps.length; i++) {
+      const p = mps[i]!;
+      const pose = poses[i]!;
+      const px = pose.x;
+      const py = pose.y;
+      const cave = p.cave;
+      if (!cave) {
+        if (hitsSub(px, py, px + p.w, py + p.h)) return false;
+      } else if (hitsSub(px, py, px + p.w, py + p.h)) {
+        if (hitsSub(px, py, px + p.w, py + cave.roofH)) return false;
+        if (hitsSub(px + p.w - cave.backW, py + cave.roofH, px + p.w, py + p.h - cave.floorH)) return false;
+        if (hitsSub(px, py + p.h - cave.floorH, px + p.w, py + p.h)) return false;
+      }
+    }
+    const pPadX = TAXI.halfW + PASSENGER.halfW + m + 4;
+    const pPadAbove = TAXI.halfH + TAXI.gearLength + PASSENGER.height + m + 4;
+    const pPadBelow = TAXI.halfH + m;
+    for (let i = 0; i < people.length; i++) {
+      const p = people[i]!;
+      const cx = wrapDelta(mx, p.x, W);
+      const cy = wrapDelta(my, p.y, H);
+      if (segHitsBox(p0x, p0y, dx, dy, cx - pPadX, cx + pPadX, cy - pPadAbove, cy + pPadBelow)) return false;
+    }
+    return true;
+  }
+  const d = Math.hypot(dx, dy);
   const steps = Math.max(1, Math.ceil(d / 8));
   for (let i = 1; i <= steps; i++) {
-    const x = x0 + ((x1 - x0) * i) / steps;
-    const y = y0 + ((y1 - y0) * i) / steps;
+    const rx = x0 + (dx * i) / steps;
+    const ry = y0 + (dy * i) / steps;
+    const x = level.wrap ? wrapCoord(rx, level.width) : rx;
+    const y = level.wrap ? wrapCoord(ry, level.height) : ry;
     const bx0 = x - TAXI.halfW - m;
     const bx1 = x + TAXI.halfW + m;
     const by0 = y - TAXI.halfH - m;
@@ -1391,7 +1661,13 @@ function clearLine(
     if (boxHitsSolid(level, bx0, by0, bx1, by1)) return false;
     if (level.gravityWells.length && pointInGravityCore(level, x, y, 75)) return false;
     for (const p of people) {
-      if (bx1 > p.x - PASSENGER.halfW && bx0 < p.x + PASSENGER.halfW && by1 > p.y - PASSENGER.height && by0 < p.y) {
+      if (level.wrap) {
+        const pdx = Math.abs(wrapDelta(x, p.x, level.width));
+        const pdy = wrapDelta(y, p.y, level.height);
+        if (pdx < TAXI.halfW + PASSENGER.halfW + m + 4 && pdy > -TAXI.halfH - m && pdy < TAXI.halfH + TAXI.gearLength + PASSENGER.height + m + 4) {
+          return false;
+        }
+      } else if (bx1 > p.x - PASSENGER.halfW && bx0 < p.x + PASSENGER.halfW && by1 > p.y - PASSENGER.height && by0 < p.y) {
         return false;
       }
     }

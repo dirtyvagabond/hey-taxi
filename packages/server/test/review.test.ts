@@ -159,6 +159,7 @@ describe('Server review data', () => {
       'Polarity Yard',
       'Gridlock Vault',
       'Overdrive Canyon',
+      'Drift Belt',
     ];
     for (const e of d.entries) {
       expect(e.description).not.toMatch(/undefined|\w:\w/);

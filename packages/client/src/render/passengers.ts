@@ -1,5 +1,5 @@
 import { Container, Graphics, type Text } from 'pixi.js';
-import type { Passenger } from '@hey-taxi/sim';
+import { wrapDelta, type Passenger } from '@hey-taxi/sim';
 import { makeText } from './text';
 
 /** Per-kind look. Placeholder people: simple shapes, original. */
@@ -145,8 +145,15 @@ export class PassengerLayer {
     return { x: p.x, y: p.y - 21 };
   }
 
-  update(passengers: readonly Passenger[], dt: number, canFirstSightHail?: (p: Passenger) => boolean): void {
+  update(
+    passengers: readonly Passenger[],
+    dt: number,
+    canFirstSightHail?: (p: Passenger) => boolean,
+    wrap?: { refX: number; refY: number; w: number; h: number } | null,
+  ): void {
     this.time += dt;
+    const wx = (v: number) => (wrap ? wrap.refX + wrapDelta(wrap.refX, v, wrap.w) : v);
+    const wy = (v: number) => (wrap ? wrap.refY + wrapDelta(wrap.refY, v, wrap.h) : v);
     const seen = new Set<number>();
     for (const p of passengers) {
       seen.add(p.id);
@@ -185,7 +192,7 @@ export class PassengerLayer {
         g.moveTo(-18, -33).lineTo(-3, -12).moveTo(18, -33).lineTo(3, -12)
           .moveTo(0, -33).lineTo(0, -12).stroke({ color: 0xe3edf3, width: 1.2 });
       }
-      s.gfx.position.set(p.x, p.y);
+      s.gfx.position.set(wx(p.x), wy(p.y));
       s.gfx.alpha = p.state === 'leaving' ? Math.min(1, p.leaveTicks / (LEAVE_TICKS * 0.5)) : 1;
     }
     for (const [id, s] of this.sprites) {
@@ -204,7 +211,7 @@ export class PassengerLayer {
       }
       const at = b.anchor();
       if (at) b.last = at;
-      b.root.position.set(b.last.x, b.last.y);
+      b.root.position.set(wx(b.last.x), wy(b.last.y));
       b.root.alpha = Math.min(1, b.life / 0.3);
     }
 

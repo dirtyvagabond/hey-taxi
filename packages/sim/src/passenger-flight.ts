@@ -1,7 +1,7 @@
 import { DT, MAX_SUBSTEP, TAXI, TICK_RATE } from './constants';
 import { envForceAt, pointHitsLaser, pointInGravityCore } from './env';
 import { setJourneyTarget } from './journeys';
-import { boxHitsSolid, isSolid, padIndexAt } from './level';
+import { boxHitsSolid, isSolid, padIndexAt, platformSolidBoxes, wrapCoord, wrapDelta } from './level';
 import type { Passenger, SimEvent, SimState, Taxi } from './sim';
 
 const HEIGHT = 22;
@@ -56,10 +56,10 @@ export function stepPassengerFlight(s: SimState, p: Passenger, events: SimEvent[
   p.vy += (ay - (canopy ? 2.4 * p.vy : 0)) * DT;
   const steps = Math.max(1, Math.ceil(Math.max(Math.abs(p.vx), Math.abs(p.vy)) * DT / MAX_SUBSTEP));
   for (let i = 0; i < steps; i++) {
-    const nx = p.x + p.vx * DT / steps;
+    const nx = level.wrap ? wrapCoord(p.x + (p.vx * DT) / steps, level.width) : p.x + (p.vx * DT) / steps;
     if (clear(s, nx, p.y)) p.x = nx;
     else p.vx = 0;
-    const ny = p.y + p.vy * DT / steps;
+    const ny = level.wrap ? wrapCoord(p.y + (p.vy * DT) / steps, level.height) : p.y + (p.vy * DT) / steps;
     const cy = ny - HEIGHT / 2;
     if (pointInGravityCore(level, p.x, cy) || pointHitsLaser(level, s.tick, p.x, cy) ||
         s.meteors.some(m => m.warnTicks <= 0 && Math.hypot(m.x - p.x, m.y - cy) < m.radius + HALF_WIDTH)) return false;
@@ -71,16 +71,39 @@ export function stepPassengerFlight(s: SimState, p: Passenger, events: SimEvent[
       continue;
     }
     if (p.vy > 180) return false;
-    const row = Math.floor(ny / ts);
-    p.y = row * ts;
-    // If only an edge of the passenger's feet caught a ledge, nudge center onto the supporting tile so walkable() holds.
-    if (!isSolid(level, Math.floor(p.x / ts), row)) {
-      const leftNudge = Math.floor(p.x / ts) * ts - HALF_WIDTH;
-      const rightNudge = (Math.floor(p.x / ts) + 1) * ts + HALF_WIDTH;
-      if (isSolid(level, Math.floor((p.x - HALF_WIDTH) / ts), row) && clear(s, leftNudge, p.y)) p.x = leftNudge;
-      else if (isSolid(level, Math.floor((p.x + HALF_WIDTH) / ts), row) && clear(s, rightNudge, p.y)) p.x = rightNudge;
+    // Check if the passenger landed on a moving platform surface first.
+    let landedMoving = false;
+    for (let mi = 0; mi < level.movingPlatforms.length && !landedMoving; mi++) {
+      const mp = level.movingPlatforms[mi]!;
+      const pose = level.platformPoses[mi]!;
+      const boxes = platformSolidBoxes(mp, pose);
+      for (let bi = 0; bi < boxes.length; bi++) {
+        const [sx0, sy0, sx1, sy1] = boxes[bi]!;
+        const scx = (sx0 + sx1) * 0.5;
+        const scy = (sy0 + sy1) * 0.5;
+        const rx = level.wrap ? scx + wrapDelta(scx, p.x, level.width) : p.x;
+        const ry = level.wrap ? scy + wrapDelta(scy, ny, level.height) : ny;
+        if (rx + HALF_WIDTH > sx0 && rx - HALF_WIDTH < sx1 && ry >= sy0 && ry <= sy1) {
+          p.y = level.wrap ? wrapCoord(sy0, level.height) : sy0;
+          const isPadSurface = mp.padIndex >= 0 && (!mp.cave || bi === 2);
+          p.padIndex = isPadSurface ? mp.padIndex : -1;
+          landedMoving = true;
+          break;
+        }
+      }
     }
-    p.padIndex = padIndexAt(level, Math.floor(p.x / ts), row);
+    if (!landedMoving) {
+      const row = Math.floor(ny / ts);
+      p.y = row * ts;
+      // If only an edge of the passenger's feet caught a ledge, nudge center onto the supporting tile so walkable() holds.
+      if (!isSolid(level, Math.floor(p.x / ts), row)) {
+        const leftNudge = Math.floor(p.x / ts) * ts - HALF_WIDTH;
+        const rightNudge = (Math.floor(p.x / ts) + 1) * ts + HALF_WIDTH;
+        if (isSolid(level, Math.floor((p.x - HALF_WIDTH) / ts), row) && clear(s, leftNudge, p.y)) p.x = leftNudge;
+        else if (isSolid(level, Math.floor((p.x + HALF_WIDTH) / ts), row) && clear(s, rightNudge, p.y)) p.x = rightNudge;
+      }
+      p.padIndex = padIndexAt(level, Math.floor(p.x / ts), row);
+    }
     p.vx = p.vy = 0;
     const reached = p.destination.localeId === (s.localeId ?? level.name) && p.padIndex === p.destination.padIndex;
     p.state = reached ? 'leaving' : 'waiting';

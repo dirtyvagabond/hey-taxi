@@ -1,6 +1,7 @@
 import { Container, Graphics } from 'pixi.js';
 import type { Level, LevelTheme } from '@hey-taxi/sim';
 import { MAX_CAMERA_ZOOM, VIEW_H, VIEW_W } from '../camera';
+import { drawAsteroidPads, drawAsteroidSky, drawAsteroidSkyline, drawAsteroidTerrain } from './asteroid';
 import { drawBeachPads, drawBeachSky, drawBeachSkyline, drawBeachTerrain } from './beach';
 import { drawCanyonPads, drawCanyonSky, drawCanyonSkyline, drawCanyonTerrain } from './canyon';
 import { makeText } from './text';
@@ -121,6 +122,20 @@ export const THEME_PALETTES: Record<LevelTheme, ThemePalette> = {
     window: 0x1a2847,
     windowLit: 0xffd17a,
   },
+  asteroid: {
+    sky: 0x060714,
+    wall: 0x242a3d,
+    wallPanel: 0x2d354d,
+    wallTop: 0x7c8cb8,
+    wallShadow: 0x0f131f,
+    padBody: 0x161b2e,
+    pad: 0x47e4ff,
+    fuel: 0xffa62b,
+    teleport: 0xc792ff,
+    skyline: 0x161a2e,
+    window: 0x4b5882,
+    windowLit: 0xffcf6b,
+  },
 };
 
 const STAR_PARALLAX = 0.12;
@@ -133,6 +148,7 @@ export class WorldView {
   private stars: Graphics;
   private skyline: Container;
   private animateBackdrop: ((dt: number) => void) | null = null;
+  private wrapCopies: Container | null = null;
 
   constructor(level: Level) {
     const pal = THEME_PALETTES[level.theme] ?? COLORS;
@@ -142,7 +158,9 @@ export class WorldView {
         ? drawCanyonSky(VIEW_W, VIEW_H, rand)
         : level.theme === 'beach'
           ? drawBeachSky(VIEW_W, VIEW_H, rand)
-          : new Graphics().rect(-2000, 0, VIEW_W + 4000, VIEW_H).fill(pal.sky);
+          : level.theme === 'asteroid'
+            ? drawAsteroidSky(VIEW_W, VIEW_H, rand)
+            : new Graphics().rect(-2000, 0, VIEW_W + 4000, VIEW_H).fill(pal.sky);
     this.stars = level.theme === 'beach' ? new Graphics() : drawStars(level, rand);
     if (level.theme === 'beach') {
       const [w, h] = layerSize(level, SKYLINE_PARALLAX);
@@ -153,16 +171,43 @@ export class WorldView {
       this.skyline = drawSkyline(level, rand, pal);
     }
     this.background.addChild(sky, this.stars, this.skyline);
-    if (level.theme === 'canyon') {
-      this.terrain.addChild(drawCanyonTerrain(level, rand));
-      drawCanyonPads(level, this.terrain, pal);
-    } else if (level.theme === 'beach') {
-      this.terrain.addChild(drawBeachTerrain(level, rand));
-      drawBeachPads(level, this.terrain, pal);
-    } else {
-      this.terrain.addChild(drawTiles(level, pal));
-      drawPads(level, this.terrain, pal);
+    const buildTerrain = (into: Container, seedOffset = 0) => {
+      const trand = seeded(level.name.length * 7919 + level.cols * 31 + level.rows + seedOffset);
+      if (level.theme === 'canyon') {
+        into.addChild(drawCanyonTerrain(level, trand));
+        drawCanyonPads(level, into, pal);
+      } else if (level.theme === 'beach') {
+        into.addChild(drawBeachTerrain(level, trand));
+        drawBeachPads(level, into, pal);
+      } else if (level.theme === 'asteroid') {
+        into.addChild(drawAsteroidTerrain(level, trand));
+        drawAsteroidPads(level, into, pal);
+      } else {
+        into.addChild(drawTiles(level, pal));
+        drawPads(level, into, pal);
+      }
+    };
+    buildTerrain(this.terrain);
+    // For seamless toroidal wrap locales, tile static terrain+pads into the 3 adjacent quadrants
+    // (+W, 0), (0, +H), (+W, +H) so the viewport [camX, camX+viewW] × [camY, camY+viewH] is seamless.
+    if (level.wrap) {
+      this.wrapCopies = new Container();
+      for (const [ox, oy] of [
+        [level.width, 0],
+        [0, level.height],
+        [level.width, level.height],
+      ] as const) {
+        const copy = new Container();
+        copy.position.set(ox, oy);
+        buildTerrain(copy);
+        this.wrapCopies.addChild(copy);
+      }
+      this.terrain.addChild(this.wrapCopies);
     }
+  }
+
+  setWatchMode(watching: boolean): void {
+    if (this.wrapCopies) this.wrapCopies.visible = !watching;
   }
 
   updateParallax(camX: number, camY: number, dt = 0): void {
@@ -190,7 +235,7 @@ function layerSize(level: Level, factor: number): [number, number] {
 function drawStars(level: Level, rand: () => number): Graphics {
   const g = new Graphics();
   const [w, h] = layerSize(level, STAR_PARALLAX);
-  const density = level.theme === 'singularity' ? 2200 : 3500;
+  const density = level.theme === 'singularity' || level.theme === 'asteroid' ? 2000 : 3500;
   const count = Math.round((w * h) / density);
   for (let i = 0; i < count; i++) {
     const r = rand() < 0.12 ? 1.7 : 0.9;
@@ -203,6 +248,9 @@ function drawSkyline(level: Level, rand: () => number, pal: ThemePalette): Graph
   const [w, h] = layerSize(level, SKYLINE_PARALLAX);
   if (level.theme === 'canyon') {
     return drawCanyonSkyline(w, h, rand);
+  }
+  if (level.theme === 'asteroid') {
+    return drawAsteroidSkyline(w, h, rand);
   }
   const g = new Graphics();
   if (level.theme === 'winter') {
@@ -272,6 +320,7 @@ function drawPads(level: Level, into: Container, pal: ThemePalette): void {
   into.addChild(g);
   const ts = level.tileSize;
   for (const pad of level.pads) {
+    if (pad.platformIndex >= 0) continue;
     const color = pad.kind === 'fuel' ? pal.fuel : pad.kind === 'teleport' ? pal.teleport : pal.pad;
     g.rect(pad.x, pad.y, pad.w, ts).fill(pal.padBody);
     g.rect(pad.x, pad.y, pad.w, 5).fill(color);

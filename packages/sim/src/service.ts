@@ -41,6 +41,9 @@ export interface ServiceCraft {
   originY: number;
   /** True when resting on a solid surface; false if hovering beside a narrow ledge. */
   landedOnGround: boolean;
+  /** Offset from the summoning taxi when riding a moving platform. */
+  dockOffsetX?: number;
+  dockOffsetY?: number;
   /** Ticks spent departing (safety cap so departure always finishes). */
   departTicks: number;
 }
@@ -98,6 +101,8 @@ export function summonService(s: SimState, t: Taxi, ev: SimEvent[]): ServiceCraf
     originX: origin.x,
     originY: origin.y,
     landedOnGround: spot.landedOnGround,
+    dockOffsetX: spot.x - t.x,
+    dockOffsetY: spot.y - t.y,
     departTicks: 0,
   };
   s.serviceCrafts.push(craft);
@@ -119,9 +124,21 @@ export function stepServiceCrafts(s: SimState, ev: SimEvent[]): void {
     }
 
     if (c.status === 'arriving') {
+      if (t && t.status === 'landed' && t.padIndex >= 0 && (s.level.pads[t.padIndex]?.platformIndex ?? -1) >= 0) {
+        c.targetX = t.x + (c.dockOffsetX ?? 60);
+        c.targetY = t.y + (c.dockOffsetY ?? 0);
+        c.hoverX = c.targetX;
+        c.hoverY = Math.max(TAXI.halfH + 8, c.targetY - 72);
+      }
       stepArriving(c, t, ev);
       alive.push(c);
     } else if (c.status === 'docked') {
+      if (t && t.status === 'landed' && t.padIndex >= 0 && (s.level.pads[t.padIndex]?.platformIndex ?? -1) >= 0) {
+        c.x = t.x + (c.dockOffsetX ?? 60);
+        c.y = t.y + (c.dockOffsetY ?? 0);
+        c.hoverX = c.x;
+        c.hoverY = Math.max(TAXI.halfH + 8, c.y - 72);
+      }
       c.vx = 0;
       c.vy = 0;
       c.gear = c.landedOnGround ? 1 : 0.6;

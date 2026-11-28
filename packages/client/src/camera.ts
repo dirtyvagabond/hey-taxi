@@ -1,3 +1,5 @@
+import { wrapCoord, wrapDelta } from '@hey-taxi/sim';
+
 /** Playfield (camera viewport) size in virtual units. */
 export const VIEW_W = 1280;
 export const VIEW_H = 720;
@@ -67,21 +69,43 @@ export class Camera {
     zoom = 1,
     vpW = VIEW_W,
     vpH = VIEW_H,
+    wrap = false,
   ): void {
     const viewW = vpW / zoom;
     const viewH = vpH / zoom;
+    const k = 1 - Math.exp(-dt * 6);
+    if (wrap) {
+      const goalX = wrapCoord(tx + vx * 0.35 - viewW / 2, levelW);
+      const goalY = wrapCoord(ty + vy * 0.25 - viewH / 2, levelH);
+      this.x = wrapCoord(this.x + wrapDelta(this.x, goalX, levelW) * k, levelW);
+      this.y = wrapCoord(this.y + wrapDelta(this.y, goalY, levelH) * k, levelH);
+      return;
+    }
     const goalX = clamp(tx + vx * 0.35 - viewW / 2, levelW, viewW);
     const goalY = clamp(ty + vy * 0.25 - viewH / 2, levelH, viewH);
-    const k = 1 - Math.exp(-dt * 6);
     this.x += (goalX - this.x) * k;
     this.y += (goalY - this.y) * k;
   }
 
-  snap(tx: number, ty: number, levelW: number, levelH: number, zoom = 1, vpW = VIEW_W, vpH = VIEW_H): void {
+  snap(
+    tx: number,
+    ty: number,
+    levelW: number,
+    levelH: number,
+    zoom = 1,
+    vpW = VIEW_W,
+    vpH = VIEW_H,
+    wrap = false,
+  ): void {
     const viewW = vpW / zoom;
     const viewH = vpH / zoom;
-    this.x = clamp(tx - viewW / 2, levelW, viewW);
-    this.y = clamp(ty - viewH / 2, levelH, viewH);
+    if (wrap) {
+      this.x = wrapCoord(tx - viewW / 2, levelW);
+      this.y = wrapCoord(ty - viewH / 2, levelH);
+    } else {
+      this.x = clamp(tx - viewW / 2, levelW, viewW);
+      this.y = clamp(ty - viewH / 2, levelH, viewH);
+    }
     this.trauma = 0;
   }
 

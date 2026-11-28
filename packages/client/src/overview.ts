@@ -16,6 +16,7 @@ const THEME_BG: Record<Level['theme'], string> = {
   vault: '#130d1c',
   canyon: '#1a0e10',
   beach: '#0e2440',
+  asteroid: '#070917',
 };
 
 const THEME_WALL: Record<Level['theme'], string> = {
@@ -26,6 +27,7 @@ const THEME_WALL: Record<Level['theme'], string> = {
   vault: '#47315e',
   canyon: '#5e3328',
   beach: '#a6824e',
+  asteroid: '#3f465e',
 };
 
 const STYLE = `
@@ -569,6 +571,16 @@ export class WorldOverviewScreen {
           ctx.fillRect(col * pxPerTile, r * pxPerTile, pxPerTile, pxPerTile);
         }
       }
+    }
+
+    // Moving platforms / drifting asteroids (drawn at base orbital center with subtle track).
+    for (const mp of level.movingPlatforms) {
+      const mx = (mp.cx / level.tileSize) * pxPerTile;
+      const my = (mp.cy / level.tileSize) * pxPerTile;
+      const mw = Math.max(2, (mp.w / level.tileSize) * pxPerTile);
+      const mh = Math.max(2, (mp.h / level.tileSize) * pxPerTile);
+      ctx.fillStyle = '#4f5875';
+      ctx.fillRect(mx, my, mw, mh);
     }
 
     // Pads on top of terrain.
