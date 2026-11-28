@@ -256,12 +256,11 @@ export function drawBeachTerrain(level: Level, rand: () => number): Graphics {
   }
 
   if (storePad) {
-    // Second lounge chair on the open sand between Pad 2's pole and the Store
-    drawLoungeChair(g, storePad.x - 62, sandSurfaceY, 0xff7b54);
-    // Classic California longboards & boogie board flanking the Store
-    drawSurfboard(g, storePad.x - 18, sandSurfaceY, 0.08, 86, 0x00d9d9, 0x009999);
-    drawSurfboard(g, storePad.x + storePad.w + 18, sandSurfaceY, -0.07, 84, 0x12b8ff, 0x087ec2);
-    drawBoogieBoard(g, storePad.x + storePad.w + 42, sandSurfaceY, -0.18, 0xff006e, 0x8338ec);
+    // Second lounge chair + neatly spaced rental longboards & boogie board on the spacious sand left of Perry's
+    drawLoungeChair(g, storePad.x - 86, sandSurfaceY, 0xff7b54);
+    drawBoogieBoard(g, storePad.x - 54, sandSurfaceY, 0.14, 0xff006e, 0x8338ec);
+    drawSurfboard(g, storePad.x - 34, sandSurfaceY, 0.08, 84, 0x00d9d9, 0x009999);
+    drawSurfboard(g, storePad.x - 14, sandSurfaceY, 0.04, 86, 0x12b8ff, 0x087ec2);
   }
 
   // 2. Solid tiles (borders, sand bases, lifeguard cabin)
@@ -301,21 +300,31 @@ export function drawBeachTerrain(level: Level, rand: () => number): Graphics {
         continue;
       }
 
-      // Pier pilings under Teleport T (row 12)
+      // Pier pilings under Teleport T (row 12) are drawn cohesively by drawPierTeleportBase()
       if (telePad && x >= telePad.x && x < telePad.x + telePad.w && r === level.rows - 2) {
-        g.rect(x, y, ts, ts).fill(0x6e4e35);
-        g.rect(x + 3, y, ts - 6, ts).fill(0x825e41);
-        g.rect(x, y, ts, 4).fill(0x4a3322);
-        // Crossbeam & bolt accents
-        g.rect(x, y + 16, ts, 5).fill(0x5c402a);
         continue;
       }
 
-      // Warm boardwalk / sand support under Pad 1 and Store F
+      // Perry's-style beach café under Store F (rows 11..12) is drawn cohesively by drawBeachCafe()
+      if (storePad && x >= storePad.x && x < storePad.x + storePad.w && y > storePad.y && r < level.rows - 1) {
+        continue;
+      }
+
+      // Warm boardwalk / sand support under Pad 1
       g.rect(x, y, ts, ts).fill(0xc79552);
       g.rect(x + 2, y + 3, ts - 4, ts - 6).fill(0xd9aa64);
       g.rect(x, y, ts, 4).fill(0x9e7139);
     }
+  }
+
+  // Cohesive Perry's-style Santa Monica beach café façade under Store F
+  if (storePad) {
+    drawBeachCafe(g, storePad, ts, sandSurfaceY);
+  }
+
+  // Cohesive thematic Santa Monica Pier pilings, cross-bracing & festoon lights under Teleport T
+  if (telePad) {
+    drawPierTeleportBase(g, telePad, ts, sandSurfaceY);
   }
 
   // Subtle top boardwalk frame shadow
@@ -353,13 +362,30 @@ export function drawBeachPads(level: Level, into: Container, pal: ThemePalette):
       g.rect(pad.x - 10, pad.y + ts - 9, pad.w + 14, 2).fill(0xeef5f8); // bright sunlit roof edge
       g.rect(pad.x - 14, pad.y + ts, 28, 4).fill(0x7ca6bc); // ocean-side sun-visor awning underneath
     } else if (pad.kind === 'fuel') {
-      // Surf Shack striped wood awning
-      g.rect(pad.x, pad.y, pad.w, ts).fill(0x2b1d12);
-      g.rect(pad.x, pad.y + ts - 6, pad.w, 6).fill(0x9e632b);
+      // Perry's-inspired white-stucco roof cornice under the standard STORE · FUEL deck
+      g.rect(pad.x, pad.y, pad.w, ts).fill(0x261c16);
+      g.rect(pad.x - 2, pad.y + ts - 6, pad.w + 4, 6).fill(0xe6e1d6);
+      g.rect(pad.x - 2, pad.y + ts - 7, pad.w + 4, 1.5).fill(0xf7f4ed);
     } else if (pad.kind === 'teleport') {
-      // Santa Monica Pier wooden portal deck
-      g.rect(pad.x, pad.y, pad.w, ts).fill(0x221b3b);
-      g.rect(pad.x, pad.y + ts - 5, pad.w, 5).fill(0x6e4e35);
+      // Santa Monica Pier boardwalk portal deck with weathered wood trim & subtle neon-violet crest
+      g.rect(pad.x, pad.y, pad.w, ts).fill(0x1b1530);
+      // Boardwalk deck planks & warm timber rim along bottom
+      g.rect(pad.x - 4, pad.y + ts - 7, pad.w + 8, 7).fill(0x6b4b32);
+      g.rect(pad.x - 4, pad.y + ts - 8, pad.w + 8, 2).fill(0x966e4d);
+      // Decorative neon-violet pier wave filigree flanking the TELEPORT label
+      for (const side of [-1, 1]) {
+        const bx = pad.x + pad.w / 2 + side * 66;
+        const by = pad.y + ts / 2 + 4;
+        g.moveTo(bx - 16, by + 2)
+          .quadraticCurveTo(bx - 8, by - 5, bx, by + 2)
+          .quadraticCurveTo(bx + 8, by + 7, bx + 16, by)
+          .stroke({ width: 2, color: pal.teleport, alpha: 0.55 });
+      }
+      // Classic wooden pier rope bollards at left & right corners (below landing strip)
+      g.rect(pad.x + 6, pad.y + 14, 6, 18).fill(0x876244);
+      g.rect(pad.x + pad.w - 12, pad.y + 14, 6, 18).fill(0x876244);
+      g.circle(pad.x + 9, pad.y + 14, 3).fill(0xc896ff);
+      g.circle(pad.x + pad.w - 9, pad.y + 14, 3).fill(0xc896ff);
     } else {
       // Pad 1: Beach Lounge Boardwalk Deck
       g.rect(pad.x, pad.y, pad.w, ts).fill(pal.padBody);
@@ -378,6 +404,121 @@ export function drawBeachPads(level: Level, into: Container, pal: ThemePalette):
     label.anchor.set(0.5);
     label.position.set(pad.x + pad.w / 2, pad.y + ts / 2 + 4);
     into.addChild(label);
+  }
+}
+
+/** Perry's-inspired Santa Monica beachfront café façade (full 2-row pavilion under STORE · FUEL). */
+function drawBeachCafe(
+  g: Graphics,
+  storePad: { x: number; y: number; w: number },
+  ts: number,
+  sandY: number,
+): void {
+  const x = storePad.x;
+  const y = storePad.y + ts; // row 11 top
+  const w = storePad.w;
+  const h = sandY - y; // 80 px tall (rows 11..12)
+  const stucco = 0xe8e3d8;
+  const stuccoLight = 0xf5f1e8;
+  const stuccoShade = 0xc7bfb2;
+
+  // Full white stucco pavilion wall
+  g.rect(x, y, w, h).fill(stucco);
+  g.rect(x, y, w, 3).fill(stuccoShade);
+  g.rect(x + w - 4, y, 4, h).fill(stuccoShade);
+  // Subtle stepped parapet accent on upper façade (signature Perry's silhouette)
+  g.rect(x + 22, y + 2, w - 44, 24).fill(stuccoLight);
+  g.rect(x + 22, y + 2, w - 44, 2).fill(stuccoShade);
+
+  // Iconic centered red oval sign on the upper parapet with crisp white rim & golden sun accent
+  const cx = x + w / 2;
+  const signY = y + 14;
+  g.ellipse(cx, signY + 1.5, 22, 7.5).fill({ color: 0x000000, alpha: 0.14 });
+  g.ellipse(cx, signY, 22, 7.5).fill(0xffffff);
+  g.ellipse(cx, signY, 20, 6.2).fill(0xd92626);
+  g.circle(cx - 11, signY, 2).fill(0xffd166);
+  g.rect(cx - 6, signY - 1, 17, 2).fill({ color: 0xfff5f5, alpha: 0.92 });
+
+  // Open-air walk-up café counter framed by two clean white stucco pillars
+  const pillarW = 14;
+  const openX = x + pillarW;
+  const openW = w - pillarW * 2;
+  const counterTop = y + 40;
+  g.rect(openX, counterTop, openW, sandY - counterTop).fill(0x1b1614);
+  // Cozy warm twilight counter lighting under the awning
+  g.rect(openX + 2, counterTop + 2, openW - 4, 16).fill({ color: 0xffcf75, alpha: 0.25 });
+  g.rect(openX + 10, counterTop + 3, openW - 20, 2.5).fill({ color: 0xffe6a3, alpha: 0.8 });
+  // Tiny menu board silhouette inside the counter
+  g.rect(cx - 10, counterTop + 10, 20, 12).fill(0x2a2422);
+  g.rect(cx - 7, counterTop + 13, 14, 1.5).fill({ color: 0xe6ddd0, alpha: 0.65 });
+  g.rect(cx - 7, counterTop + 17, 10, 1.5).fill({ color: 0xe6ddd0, alpha: 0.5 });
+  // Lower timber service counter
+  g.rect(openX, sandY - 15, openW, 15).fill(0x5c4637);
+  g.rect(openX, sandY - 16, openW, 2.5).fill(0x8c6e58);
+  // Subtle stucco pillar inner shadows
+  g.rect(openX - 2, counterTop, 2, sandY - counterTop).fill(stuccoShade);
+  g.rect(openX + openW, counterTop, 2, sandY - counterTop).fill(stuccoShade);
+
+  // Signature bright red scalloped awning spanning across the café front
+  const awX = x - 3;
+  const awW = w + 6;
+  const awY = y + 29;
+  const awH = 10;
+  g.poly([awX + 4, awY, awX + awW - 4, awY, awX + awW, awY + awH, awX, awY + awH]).fill(0xe02828);
+  g.rect(awX, awY + awH - 2, awW, 2).fill(0xb51b1b);
+  const scallops = 14;
+  const sw = awW / scallops;
+  for (let i = 0; i < scallops; i++) {
+    g.circle(awX + (i + 0.5) * sw, awY + awH, sw * 0.48).fill(i % 2 === 0 ? 0xd92626 : 0xb51b1b);
+  }
+}
+
+/** Thematic Santa Monica Pier open-piling substructure with cross-bracing and twilight festoon lights. */
+function drawPierTeleportBase(
+  g: Graphics,
+  telePad: { x: number; y: number; w: number },
+  ts: number,
+  sandY: number,
+): void {
+  const x = telePad.x;
+  const y = telePad.y + ts; // row 12 top
+  const w = telePad.w;
+  const h = sandY - y; // 40 px
+
+  // Shadowed surf/under-pier twilight backdrop (lets the wooden pilings read like a real pier)
+  g.rect(x, y, w, h).fill({ color: 0x0c283d, alpha: 0.82 });
+  // Subtle violet portal shimmer reflecting on the water beneath the pier
+  g.ellipse(x + w / 2, y + h - 8, w * 0.36, 6).fill({ color: 0xb48cff, alpha: 0.16 });
+  g.rect(x + 6, y, w - 12, 5).fill(0x3b281b); // heavy timber girder under pier deck
+
+  // Five sturdy weathered timber pilings with X-bracing between bays
+  const bays = 4;
+  const bayW = (w - 20) / bays;
+  for (let b = 0; b < bays; b++) {
+    const px0 = x + 10 + b * bayW;
+    const px1 = px0 + bayW;
+    // Diagonal timber X-bracing
+    g.moveTo(px0 + 4, y + 6).lineTo(px1 - 4, sandY - 4).stroke({ width: 3.5, color: 0x4f3624 });
+    g.moveTo(px1 - 4, y + 6).lineTo(px0 + 4, sandY - 4).stroke({ width: 3.5, color: 0x63452e });
+    // Draped warm twilight festoon string lights under the pier deck
+    const midX = (px0 + px1) / 2;
+    g.moveTo(px0 + 4, y + 6).quadraticCurveTo(midX, y + 16, px1 - 4, y + 6).stroke({ width: 1, color: 0x2a1d14 });
+    for (const f of [0.25, 0.5, 0.75]) {
+      const lx = px0 + 4 + (px1 - px0 - 8) * f;
+      const ly = y + 6 + Math.sin(f * Math.PI) * 6;
+      const bulb = f === 0.5 ? 0xd4adff : 0xffd67a;
+      g.circle(lx, ly + 1.5, 4).fill({ color: bulb, alpha: 0.22 });
+      g.circle(lx, ly + 1.5, 1.8).fill(bulb);
+    }
+  }
+  // Vertical timber pilings drawn cleanly in front of bracing
+  for (let i = 0; i <= bays; i++) {
+    const px = x + 10 + i * bayW;
+    g.rect(px - 5, y, 10, h).fill(0x6b4b32);
+    g.rect(px - 5, y, 3, h).fill(0x876244); // sunlit west edge
+    g.rect(px + 2, y, 3, h).fill(0x473120); // shadowed east edge
+    // Barnacle/sand collar at the base of each piling
+    g.rect(px - 6, sandY - 4, 12, 4).fill(0x3a281a);
   }
 }
 

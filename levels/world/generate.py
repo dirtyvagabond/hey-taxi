@@ -76,8 +76,8 @@ locales = []
 sm = L(26, 14)
 sm.pad('1', 11, 1, 4, base=1); sm.g[10][2] = 'S'           # Beach Lounge Deck (sand & loungers)
 sm.pad('2', 7, 6, 9, base=0)                               # Giant Beach Umbrella canopy
-sm.pad('F', 11, 10, 12, base=1)                            # Store / Fuel
-sm.pad('T', 11, 14, 19, base=1)                            # Pier Teleport
+sm.pad('F', 10, 10, 12, base=2)                            # Perry's Beach Café (Store / Fuel)
+sm.pad('T', 11, 14, 19, base=1)                            # Santa Monica Pier Teleport
 sm.pad('3', 9, 21, 24, base=0); sm.fill(10, 12, 22, 23)    # Santa Monica Lifeguard Tower
 locales.append(('0-santa-monica', 'Santa Monica', 0.5, (7.0, 2), 0,
   'Sunny beach training: three easy platforms, no rivals, low fares. Teleport when ready for the city!', sm, {
